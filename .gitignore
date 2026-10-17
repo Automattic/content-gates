@@ -1,0 +1,17 @@
+# Dependencies
+/node_modules/
+/vendor/
+
+# Local environment overrides
+/.wp-env.override.json
+/.wp-env.tests.override.json
+
+# Test output
+/artifacts/
+/playwright-report/
+/coverage/
+/.phpunit.result.cache
+/.phpcs.cache
+
+# OS and editor noise
+.DS_Store

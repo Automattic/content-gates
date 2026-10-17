@@ -1,0 +1,27 @@
+{
+	"name": "content-gates",
+	"version": "0.1.0",
+	"description": "Cache-aware content gating for WordPress on WPVIP.",
+	"private": true,
+	"license": "GPL-2.0-or-later",
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"doctor": "node bin/doctor.mjs",
+		"env": "wp-env",
+		"env:tests": "wp-env --config=.wp-env.tests.json",
+		"lint": "npm run lint:php && npm run analyze:php && npm run lint:js",
+		"lint:js": "wp-scripts lint-js",
+		"lint:php": "composer lint",
+		"analyze:php": "composer analyze",
+		"test:php": "wp-env --config=.wp-env.tests.json run cli --env-cwd=wp-content/plugins/content-gates vendor/bin/phpunit",
+		"test:e2e": "playwright test"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.64.1",
+		"@wordpress/e2e-test-utils-playwright": "^3.0.0",
+		"@wordpress/env": "^11.17.0",
+		"@wordpress/scripts": "^36.1.0"
+	}
+}

@@ -17,9 +17,37 @@ Product decisions, discovery evidence, and specification lives in `spec/`.
 
 ## Layout, setup, and environment
 
-TODO: Define the plugin entry point, PHP/client/edge directories, dependency versions, and supported WordPress/PHP/Node versions.
+Support floor (assumed until the spec says otherwise): WordPress 6.6+,
+PHP 8.1+, Node 20+ (`.nvmrc` pins 24). wp-env runs PHP 8.3 and latest
+WordPress core.
 
-TODO: Document installation, build, lint, type-check, test, coverage, and packaging commands here once verified. Starting tools: PHPCS with WordPress rules, `@wordpress/scripts`, PHPUnit, and Playwright; confirm versions and compatibility during setup.
+Tooling, all pinned in `composer.json` / `package.json`:
+
+- PHPCS with `WordPress-Extra`, `WordPress-Docs`, and `WordPress-VIP-Go`
+  (`phpcs.xml.dist`). Prefixes: `ContentGates`, `content_gates`,
+  `CONTENT_GATES`. Text domain: `content-gates`.
+- PHPStan level 8 with the WordPress extension and test stubs
+  (`phpstan.neon.dist`).
+- PHPUnit 9.6 + Yoast polyfills, run against the WordPress test library
+  that wp-env mounts at `WP_TESTS_DIR` (`phpunit.xml.dist`).
+- `@wordpress/scripts` for ESLint (flat config, WordPress preset) and
+  Playwright with `@wordpress/e2e-test-utils-playwright`
+  (`playwright.config.ts`).
+
+```bash
+npm run lint          # lint:php + analyze:php + lint:js
+npm run lint:php      # composer lint   (PHPCS)
+npm run analyze:php   # composer analyze (PHPStan)
+npm run lint:js       # wp-scripts lint-js
+composer lint:fix     # PHPCBF
+```
+
+No build step exists yet; there is no client-side code. Packaging is TODO.
+
+Class autoloading follows WordPress file naming:
+`ContentGates\Providers\Static_Provider` lives at
+`inc/providers/class-static-provider.php` (see `autoload()` in
+`content-gates.php`). Tests use the core `test-*.php` convention.
 
 Keep development and test data separate. Do not run database-resetting suites against a shared environment concurrently. Local edge simulation should follow WPVIP cache behavior. Document and warn about any variances.
 
@@ -44,18 +72,22 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - Cache hit rate must remain within 5 percentage points of the baseline on the same URLs with a comparable workload. Save the workload, versions, and results.
 - Check crawler structured data with Google's Rich Results Test. Record all leak-surface findings and permitted limitations.
 - Before completion, run applicable build, lint, analysis, and test checks. Report failures and skipped checks; missing tooling is not a pass.
-- TODO: Add environment health checks, safe debug logging, and reproducible benchmark commands. Record confirmed traps with their regression tests.
+- `npm run doctor` is the environment health check. TODO: Add safe debug logging and reproducible benchmark commands. Record confirmed traps with their regression tests.
 - Sign commits; ensure local Git configuration does not disable signing. Never bypass checks merely to obtain a passing result.
 
 ## Repo layout
 
-- `content-gates.php`: plugin entrypoint
-- `docs/`: docs for human users
-- `inc/`: server PHP
+- `content-gates.php`: plugin entrypoint, constants, autoloader
+- `inc/`: server PHP (`class-plugin.php` wires components to hooks)
+- `docs/`: docs for human users, including the public hook reference
 - `spec/`: product specification
+- `bin/`: repo scripts (`doctor.mjs`)
 - `tests/`: ALL tests, fixtures, and test tooling
-  - `tests/unit/`: PHPUnit tests
+  - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `test-*.php`)
+  - `tests/e2e/`: Playwright specs and `global-setup.ts`
   - `tests/debugging/`: debugging/analysis tools
+- `.github/workflows/ci.yml`: static checks, PHPUnit, Playwright
+- `artifacts/`: gitignored Playwright output and auth storage state
 
 ## Setup (from a clean checkout)
 
@@ -66,19 +98,24 @@ npm install               # JS tooling (@wordpress/scripts, wp-env, Playwright)
 
 ## Environment
 
-Two SEPARATE wp-env configs (dev and tests).
+Two SEPARATE wp-env configs (dev and tests), each a single wp-env
+instance (`testsEnvironment: false`; wp-env's embedded tests site is
+deprecated and would collide on :8889).
 
 ```bash
-npm run env start         # DEV env (.wp-env.json)
-npm run env:tests start   # TESTS env (.wp-env.tests.json)
+npm run env start         # DEV env   (.wp-env.json)        http://localhost:8888
+npm run env:tests start   # TESTS env (.wp-env.tests.json)  http://localhost:8889
 ```
+
+`npm run env:tests` is `wp-env --config=.wp-env.tests.json`; any wp-env
+subcommand works after it (`stop`, `run cli wp ...`, `logs`, `destroy`).
 
 `autoPort` is on, so when a port is busy wp-env picks a free one and prints
 the URL it chose. Force ports with `WP_ENV_PORT`. Each config has its own
-work dir under `~/.wp-env` (the tests one carries a `-tests-` segment), so
-the two environments are fully independent — separate databases included.
-Personal overrides go in `.wp-env.override.json` /
-`.wp-env.tests.override.json` (both gitignored).
+work dir under `~/.wp-env` (`wp-env-content-gates-<hash>` and
+`wp-env-content-gates-tests-<hash>`), so the two environments are fully
+independent — separate databases included. Personal overrides go in
+`.wp-env.override.json` / `.wp-env.tests.override.json` (both gitignored).
 
 ## Testing
 
@@ -88,9 +125,18 @@ npm run test:e2e            # Playwright E2E against the wp-env tests site
 ```
 
 **Iterate at the cheapest layer that can catch the change.** The ladder,
-fast → slow (only the last three need wp-env):
+fast → slow (only the last two need wp-env):
 
-1. TODO: Define test ladder
+1. `npm run lint:php` and `npm run analyze:php`: PHPCS and PHPStan on the
+   host. Catches standards, types, and undefined symbols in well under a
+   second.
+2. `npm run lint:js`: ESLint over `bin/`, `tests/e2e/`, and
+   `playwright.config.ts`.
+3. `npm run test:php`: PHPUnit inside the tests-env `cli` container with the
+   WordPress test library. Covers hooks, providers, rendering, REST.
+4. `npm run test:e2e`: Playwright against the tests site. Covers response
+   bytes, cookies, cache behavior, admin UI. Starts the tests env if the
+   base URL does not answer.
 
 Single-test loops: Don't rerun a whole suite while iterating on one
 failure:
@@ -115,11 +161,36 @@ detects this arrangement and prints the right URL).
 When something misbehaves, reach for these before adding `printf` debugging.
 They exist so a failure is observable without re-instrumenting:
 
-- **`npm run doctor`**: read-only environment preflight
-- TODO: Document additional diagnostics
+- **`npm run doctor`**: read-only environment preflight. Checks toolchain,
+  Docker, dependencies, both wp-env instances, who owns :8888/:8889, and
+  prints the `WP_BASE_URL` to use.
+- **`npm run env:tests logs --no-watch`**: PHP and Apache logs for the tests
+  site. `WP_DEBUG_LOG` is on, so PHP notices land in
+  `wp-content/debug.log` inside the container
+  (`npm run env:tests run cli tail wp-content/debug.log`).
+- **Playwright traces**: every failure keeps a trace, video, and
+  `error-context.md` under `artifacts/test-results/`. Open with
+  `npx playwright show-trace <trace.zip>`.
+- TODO: Add cache/cookie/segment inspection tools under `tests/debugging/`
+  once Phase B exists.
 
 ## Gotchas
 
 Each of these has bitten. Don't rediscover them.
 
-- TODO: Document gotchas
+- **PHPUnit leaves the tests DB on a nonexistent theme.** The WordPress test
+  library's install step resets the database and sets `stylesheet` to
+  `default`, so every page on :8889 returns 500 for logged-in users until
+  a real theme is active. `tests/e2e/global-setup.ts` pins
+  `twentytwentyfive` for this reason. Do not remove that line.
+- **`wp-env start` without `testsEnvironment: false` starts two sites.** The
+  default config would also claim :8889 and race the real tests config.
+  Both configs set the flag.
+- **`npm run env:tests run ...` needs `--env-cwd`.** The container's cwd is
+  the WordPress root, not the plugin. `test:php` already passes
+  `--env-cwd=wp-content/plugins/content-gates`.
+- **ESLint is flat config.** `@wordpress/scripts` 36 ships
+  `eslint.config.cjs`; a legacy `.eslintrc` is ignored. Scripts in `bin/`
+  need `/* eslint-disable no-console */` to print.
+- **`WP_TESTS_DIR` is only set inside wp-env.** Running `vendor/bin/phpunit`
+  on the host fails fast with a message pointing to `npm run test:php`.

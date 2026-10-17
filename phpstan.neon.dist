@@ -1,0 +1,9 @@
+parameters:
+	level: 8
+	paths:
+		- content-gates.php
+		- inc
+		- tests/unit
+	scanFiles:
+		- vendor/php-stubs/wordpress-tests-stubs/wordpress-tests-stubs.php
+	treatPhpDocTypesAsCertain: false
