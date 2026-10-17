@@ -46,13 +46,35 @@ Status: draft for investigation. This document describes the API surface and the
 
 **The one rule.** Every membership question must go through the API. Code that checks membership another way (for example calling `Vary_Cache` directly) is invisible to the report, and the edge may hand one reader a page meant for someone else.
 
-**The catch.** The report can only be written after rendering, because that is the only time we know which groups were checked. `Vary_Cache` sends its cache instructions before rendering starts. Closing that gap needs changes in how WordPress sends the response and in what the edge does with it. This document says what those changes must achieve, not how to build them.
+**The catch.** The report can only be written after rendering, because that is the only time we know which groups were checked. `Vary_Cache` sends its cache instructions before rendering starts. Closing that gap needs changes in how WordPress sends the response and in what the edge does with it. This document says what those changes must achieve, not how to build them. This and the other hard problems are listed under Risks & Unknowns.
 
 **Terms.** A **segment** is a named group readers can be gated against (one `Vary_Cache` group). In this spec a reader is either in a segment or not. The cookie records a fixed token (`1`) for "in", and the API treats "not in" as a distinct state called `none`. Segments with several possible values, such as metering steps, are described under Future work and are not the focus here. **Membership** is all values a reader holds, carried in the cookie. The **consulted set** is the segment names one response read while rendering. The **variant key** is membership restricted to the consulted set, including `none` entries, and is what the cache should key on.
 
 ## Use cases
 
-### A provider puts a reader into a segment
+### Reader use cases
+
+**An anonymous reader opens a gated article.** They see the headline, the excerpt, and a prompt to subscribe. The rest of the article is not in the page at all: not hidden, not in the page source, not visible with JavaScript off. The page arrives from the edge as fast as any other page, because every anonymous reader shares the same copy.
+
+**A reader subscribes.** The publisher's entitlement provider puts them in the `subscriber` segment and sets the cookie. From the next page load, every gated article shows in full. The first article they open after subscribing may be a little slower, since no cached copy for subscribers exists yet. After that, all subscribers share it.
+
+**A reader belongs to many groups.** Someone who is a subscriber, a newsletter member, and a donor gets the same copy of an article as a plain subscriber. Being in extra groups never makes their pages slower or produces a separate copy, unless a page actually looks at one of those groups.
+
+**A subscriber lets their subscription lapse.** The provider removes them from the segment on their next request that reaches origin. From then on they see the anonymous view. Nothing has to be purged from the cache, and no cached copy is tied to a person, only to a combination of segment values.
+
+### Publisher use cases
+
+**An editor creates a segment and gates content with it.** Using the existing gate-builder UI, they add "Subscribers", which registers a `subscriber` segment with a stable ID. In the block editor they mark a block, or the whole post below a point, as visible to Subscribers only. On publish, non-subscribers get a render with that content omitted. The editor can confirm it by viewing the page logged out and viewing source.
+
+**A publisher connects an entitlement provider.** Newspack ships with a bridge from its `register_rule()` to the assignment contract. A publisher on another system (WooCommerce memberships, a third-party paywall) writes a small adapter against the same documented, versioned contract and does not need to touch the cache layer.
+
+**A publisher checks that paid content does not leak.** They, or an automated test, fetch each gated URL as an anonymous reader and search the response for gated text. The expected result is zero matches for every segment. This is the headline acceptance test for the project.
+
+**A publisher renames or removes a segment.** Renaming or removing a segment invalidates every stored copy that depended on it and strands existing cookies. Segment IDs are stable identifiers, not labels. Changing which content a segment gates purges dependent copies. Changing a reader's membership purges nothing: the reader simply projects to a different key.
+
+### Technical use cases
+
+#### A provider puts a reader into a segment
 
 Newspack, WooCommerce, or a third party decides a reader is entitled and calls `assign_reader_to_segment()` from PHP before the `send_headers` hook. The wrapper writes through to `Vary_Cache::set_group_for_user()`, which sets the `vip-go-seg` cookie (or `vip-go-auth` when encrypted) at `send_headers`:
 
@@ -66,15 +88,15 @@ Because a cache HIT never runs PHP, assignment during a cacheable GET only takes
 
 A provider running in the browser calls an uncacheable endpoint that performs the same assignment and returns the cookie before any redirect.
 
-### The edge puts a reader into a segment
+#### The edge puts a reader into a segment
 
 Crawler classification runs in a VIP Edge Worker, because a cache HIT never reaches origin. The worker writes the same cookie, in the same format, as a second writer alongside `Vary_Cache`. Anonymous metering will use the same mechanism later (see Future work).
 
-### A template author gates content
+#### A template author gates content
 
 Theme, block, shortcode, and widget code calls `is_reader_in_segment()` and branches on the answer. Gated content is omitted from the HTML for readers who are not entitled. Every call records the segment in the consulted set, whether or not the reader was in it and whether or not anything was shown.
 
-### A reader requests a page
+#### A request flows through the edge and origin
 
 1. The CDN turns the cookie into the `X-VIP-Go-Segmentation` request header (or decrypted `X-VIP-Go-Auth`) and looks for a stored copy.
 2. On a MISS, origin parses the cookie at `init`, renders the page, and records the consulted set as reads happen.
@@ -109,17 +131,13 @@ Cache-Control: max-age=300
 X-Content-Gate-Vary: subscriber
 ```
 
-### Non-HTML responses
+#### Non-HTML responses
 
 Archives and search (each post in the loop may consult segments), RSS and Atom feeds, oEmbed, REST responses with rendered content, and anything reading membership from a global hook like `wp_head` all go through the same flow. Each output path needs the finalization step to fire.
 
-### An engineer debugs or tests variance
+#### An engineer debugs or tests variance
 
 With `WP_DEBUG` on, origin emits a header with the consulted set and variant key next to `Vary_Cache`'s existing `X-VIP-Go-Segmentation-Debug`, which carries full membership. Comparing the two shows exactly what was narrowed.
-
-### A site operator changes a segment
-
-Renaming or removing a segment invalidates every stored copy that depended on it and strands existing cookies. Segment IDs are stable identifiers, not labels. Changing which content a segment gates purges dependent copies. Changing a reader's membership purges nothing: the reader simply projects to a different key.
 
 ## Finish line + verification
 
@@ -169,21 +187,31 @@ Each item below is meant to become an acceptance test or a guardrail. The advers
 - Origin-side prediction alone, keeping the existing `Vary` header. It still keys on the full cookie.
 - Path-scoped cookies carrying one page's segments. Cookie count explodes and path matching is fragile.
 - Reading membership from anywhere but the wrapper.
-- Storing rendered gated HTML in the object cache, transients, or a block render cache. Fragment caching of gated content is out of scope for this slice (see Future work).
+- Storing rendered gated HTML in the object cache, transients, or a block render cache. Fragment caching of gated content is out of scope for this slice (see Risks & Unknowns).
 - Keying a stored copy on a set learned from a different render of the same URL.
 - Assuming HTTP trailers work end to end.
 - Rendering gated content and hiding it client-side. The whole point is that it never leaves origin.
 
-### Not yet decided
+## Risks & Unknowns
 
-1. Does the VIP CDN honor `Vary` on custom header names set by an Edge Worker, and is there a cap on variants per URL? Decides the edge direction.
-2. Can an Edge Worker keep per-URL state, and with what consistency? Manifest direction only.
-3. Can `Vary_Cache`'s `Vary: X-VIP-Go-Segmentation` be suppressed without forking the class?
-4. What does full-response buffering cost on origin for a representative page?
-5. Which non-HTML surfaces render gated content today on Newspack sites?
-6. How does the Edge Worker stay in sync with the `Vary_Cache` cookie format, especially in encrypted mode where it would need the site key?
-7. Can `register_group()` and `set_group_for_user()` be called reliably before `send_headers` on every request path?
-8. How many segments co-occur on one page in practice? This decides whether the per-segment `Vary` direction's variant count is acceptable.
+Each item is a problem that has to be solved, or a fact that has to be established, before the API above can be built with confidence. The last column says what would settle it.
+
+| Risk or unknown | Why it is hard | What settles it |
+| --- | --- | --- |
+| **The signal comes after render.** The consulted set is only known once templates and blocks have run, but `Vary_Cache` sends its cache instructions at `send_headers`, before `template_redirect`, and PHP cannot add a header once body output has started. | The practical fix is to hold the whole response body until render finishes. That costs memory and time-to-first-byte on origin requests, can collide with other output buffering on the site, and breaks if a theme calls `flush()` or exits early (redirects, `wp_die()`, 404 handling). HTTP trailers would avoid buffering but are not reliably supported by PHP SAPIs or CDNs. | Measure buffering cost on a representative page. Enumerate early-exit paths and define what the signal is on each. Confirm trailers are not an option. |
+| **`Vary_Cache` sends the broad `Vary` header on its own.** It emits `Vary: X-VIP-Go-Segmentation` whenever any group has a value, and it loads every group from the cookie whether or not it was registered. | That header is exactly the full-cookie keying we want to escape. Suppressing it means unhooking `send_headers` and re-implementing cookie writes, or asking the edge to ignore it, or getting a small upstream filter. | Decide whether an upstream change to `Vary_Cache` is possible. If not, prove the edge can prefer the new signal over the old header. |
+| **Edge capabilities are unverified.** Both candidate directions depend on what the VIP CDN and Edge Workers can do. | Direction A needs `Vary` honored on custom header names and a known cap on variants per URL. Direction B needs per-URL state at the edge with acceptable consistency. Neither has been checked. | Ask VIP, then build a minimal test on a VIP test application for whichever direction looks viable. |
+| **Unreported reads poison the cache.** Any code that branches on membership without going through the wrapper produces an under-reported set, and the edge then serves one reader's page to another. | `Vary_Cache` has no hook on reads, so the wrapper cannot observe direct calls. Newspack's own `Content_Gate` checks, third-party plugins, and theme code all have to be routed through the wrapper. A sniff catches first-party code but not arbitrary plugins. | Static analysis for first-party code, a debug-mode log of direct `Vary_Cache` reads, and a bridge so Newspack's restriction checks go through the wrapper. Accept and document the residual risk from third-party code. |
+| **Fragment caches hide reads.** A fragment rendered once and stored in the object cache, a transient, or a block render cache was produced by a render that read `subscriber`. A later request reuses it without reading anything, so the dependency is lost. | The wrapper only sees reads that happen during the current request. Themes and plugins already cache fragments today, and nothing stops one from caching gated markup. The fix would be a way to record a dependency without a read, which this slice deliberately leaves out of the API. | Audit the test site and Newspack for fragment caching around gated content. Keep gated HTML out of fragment caches in this slice. If that proves impractical, add an explicit dependency call and have fragment caches store and replay the consulted set. |
+| **Per-render consulted sets are subtle.** A gate nested inside another gate only runs for readers who pass the outer one, so two renders of one URL report different sets. | Safe only if each stored copy is keyed on the set its own response reported. An edge design that keys on a per-URL manifest learned from other renders breaks this. Easy to get wrong and hard to notice without a targeted test. | The nested-gate integration test under Finish line. Work the case through on paper for whichever edge direction is chosen. |
+| **Every output path needs the finalization step.** Feeds, oEmbed, REST responses with rendered content, archives, and search each have their own output lifecycle. | REST sends JSON through its own serving hooks, feeds use their own templates, and some paths may not pass through `template_redirect` at all. Missing one path means gated content keyed on the wrong set there. | Inventory which non-HTML surfaces render gated content today on Newspack sites. Add an integration test per path. |
+| **The registry must load before `send_headers` on every path.** Each segment that might be read has to be registered with `Vary_Cache::register_group()` first. | REST, admin-ajax, cron, and feeds reach `send_headers` on different hooks and at different times. Lazy registration on first read is too late. | Confirm `register_group()` and `set_group_for_user()` can be called reliably before `send_headers` on each path. This is the unresolved engineering-validation question for the whole approach. |
+| **Reads from global hooks fragment every page.** A membership check in `wp_head`, `wp_footer`, or a sitewide widget adds that segment to every response. | Correct, but it means a site-wide "subscriber" check in the header doubles the variant count on every URL, including pages with no gated content. The win from narrow keying disappears. | Document the cost. Audit the test site for global reads. Consider whether a global read should warn in debug mode. |
+| **Two writers of one cookie.** The Edge Worker (crawler now, metering later) writes the same cookie `Vary_Cache` writes. | The worker must reproduce the exact format: version prefix, sorted group order, allowed characters. In encrypted mode it would also need the site key and the signed expiry. Format drift silently splits the cache. | Share one serializer or one conformance test between PHP and the worker. Decide whether encrypted mode is supported at all for edge-written segments. |
+| **Cookie size.** Full membership still travels in one cookie, shared with every other cookie on the domain. | Around 20 bytes per boolean segment means 100 segments is about 2 KB against a 4 KB limit, before encryption overhead. | Set a recommended maximum in the provider contract and warn before the limit. Get a real number for segments per reader. |
+| **Real cardinality is unknown.** No one has measured how many segments co-occur on one page in practice. | This decides whether direction A's variant count per URL is acceptable, and whether the hit-rate target is achievable. | Ask Newspack engineering for real usage. Measure on the test site. |
+| **Migration from today's keying.** Enabling narrow keying while copies keyed on the full cookie still exist at the edge. | Old copies are keyed on a different header, so they will not be matched by the new scheme, but they occupy the cache and may be served until they expire if the old `Vary` header is still present on some paths. | Purge on cutover. Confirm no path still emits the old header afterwards. |
+| **Assignment only takes effect at origin.** A provider assigning membership during a cacheable GET sees nothing happen on a HIT. | Providers used to running on every request will be surprised. The redirect flow on `vip_vary_cache_did_send_headers` is the only reliable pattern. | State this plainly in the provider contract with the worked Newspack bridge as the example. |
 
 ## Future work
 
@@ -213,10 +241,6 @@ is_reader_in_segment( 'meter', 'wall' );           // optional exact-value check
 - The registry gains a `values` list so the edge can emit `none` and validate values.
 
 **Left out of this spec.** The metering algorithm, the Edge Worker, the `anon` through `wall` sequence, and how metering interacts with crawler classification. Those belong to the metering work.
-
-### Cached fragments
-
-This slice never stores rendered gated HTML in the object cache, transients, or a block render cache. If that changes, a fragment produced by a render that read `subscriber` would be reused by a later request that reads nothing, and the dependency would be lost. Supporting it would need the fragment cache to store the consulted set alongside the HTML and replay it into the current response, which means an explicit "declare a dependency without reading" call on the API. That call is left out until there is a concrete need for it. The filter on the finalized set remains the only manual adjustment point for now.
 
 ## Standards
 
