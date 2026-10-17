@@ -12,14 +12,13 @@ Status: draft for investigation. This document describes the API surface and the
 
 **The API has three jobs.**
 
-1. Put a reader into a group, or take them out. Called by an entitlement provider (Newspack, WooCommerce, a third party) or by our own metering and crawler detection. This is the public, versioned contract providers build against.
+1. Put a reader into a group, or take them out. Called by an entitlement provider (Newspack, WooCommerce, a third party) or by our own crawler detection. This is the public, versioned contract providers build against.
 
    ```php
    register_segment( 'subscriber' );
-   register_segment( 'meter', [ 'values' => [ 'anon', 'm1', 'm2', 'm3', 'wall' ] ] );
+   register_segment( 'newsletter' );
 
-   assign_reader_to_segment( 'subscriber' );          // boolean segment
-   assign_reader_to_segment( 'meter', 'm2' );         // stepped segment
+   assign_reader_to_segment( 'subscriber' );
    remove_reader_from_segment( 'newsletter' );
    ```
 
@@ -32,8 +31,6 @@ Status: draft for investigation. This document describes the API surface and the
        the_excerpt();
    }
 
-   $step = get_reader_segment_value( 'meter' );       // 'm2', or null if not in the segment
-
    declare_segment_dependency( 'subscriber' );        // record a dependency without reading
    ```
 
@@ -41,7 +38,7 @@ Status: draft for investigation. This document describes the API surface and the
 
    ```php
    add_action( 'content_gate_finalize_variance', function ( array $consulted ) {
-       // $consulted is e.g. [ 'subscriber', 'meter' ]. Hook point for the edge signal and debug output.
+       // $consulted is e.g. [ 'subscriber', 'newsletter' ]. Hook point for the edge signal and debug output.
    } );
 
    add_filter( 'content_gate_consulted_segments', function ( array $consulted ) {
@@ -53,7 +50,7 @@ Status: draft for investigation. This document describes the API surface and the
 
 **The catch.** The report can only be written after rendering, because that is the only time we know which groups were checked. `Vary_Cache` sends its cache instructions before rendering starts. Closing that gap needs changes in how WordPress sends the response and in what the edge does with it. This document says what those changes must achieve, not how to build them.
 
-**Terms.** A **segment** is a named group readers can be gated against (one `Vary_Cache` group). A **segment value** is the reader's value in it: a fixed token (`1`) for boolean segments, one of a known list for stepped segments, or `none` when the reader is not in it. **Membership** is all values a reader holds, carried in the cookie. The **consulted set** is the segment names one response read while rendering. The **variant key** is membership restricted to the consulted set, including `none` entries, and is what the cache should key on.
+**Terms.** A **segment** is a named group readers can be gated against (one `Vary_Cache` group). In this spec a reader is either in a segment or not. The cookie records a fixed token (`1`) for "in", and the API treats "not in" as a distinct state called `none`. Segments with several possible values, such as metering steps, are described under Future: stepped segments and are not the focus here. **Membership** is all values a reader holds, carried in the cookie. The **consulted set** is the segment names one response read while rendering. The **variant key** is membership restricted to the consulted set, including `none` entries, and is what the cache should key on.
 
 ## Use cases
 
@@ -73,11 +70,11 @@ A provider running in the browser calls an uncacheable endpoint that performs th
 
 ### The edge puts a reader into a segment
 
-Metering (`anon`, `m1`, `m2`, `m3`, `wall`) and crawler classification run in a VIP Edge Worker, because they must advance on cache HITs. The worker writes the same cookie, in the same format, as a second writer alongside `Vary_Cache`.
+Crawler classification runs in a VIP Edge Worker, because a cache HIT never reaches origin. The worker writes the same cookie, in the same format, as a second writer alongside `Vary_Cache`. Anonymous metering will use the same mechanism later (see Future: stepped segments).
 
 ### A template author gates content
 
-Theme, block, shortcode, and widget code calls `is_reader_in_segment()` or `get_reader_segment_value()` and branches on the answer. Gated content is omitted from the HTML for readers who are not entitled. Every call records the segment in the consulted set, whether or not the reader was in it and whether or not anything was shown.
+Theme, block, shortcode, and widget code calls `is_reader_in_segment()` and branches on the answer. Gated content is omitted from the HTML for readers who are not entitled. Every call records the segment in the consulted set, whether or not the reader was in it and whether or not anything was shown.
 
 Code that knows a response depends on a segment without reading it, for example when reusing a cached fragment, calls `declare_segment_dependency()`.
 
@@ -86,22 +83,22 @@ Code that knows a response depends on a segment without reading it, for example 
 1. The CDN turns the cookie into the `X-VIP-Go-Segmentation` request header (or decrypted `X-VIP-Go-Auth`) and looks for a stored copy.
 2. On a MISS, origin parses the cookie at `init`, renders the page, and records the consulted set as reads happen.
 3. After rendering, the wrapper freezes the consulted set and sends it with the response. Two plausible shapes:
-   - A custom header: `X-Content-Gate-Vary: subscriber, meter`.
-   - Standard `Vary` over per-segment request headers the Edge Worker splits out of the cookie: `Vary: X-Content-Gate-Seg-subscriber, X-Content-Gate-Seg-meter`.
+   - A custom header: `X-Content-Gate-Vary: subscriber, newsletter`.
+   - Standard `Vary` over per-segment request headers the Edge Worker splits out of the cookie: `Vary: X-Content-Gate-Seg-subscriber, X-Content-Gate-Seg-newsletter`.
 4. The edge stores the copy keyed on the URL plus the reader's values for only those segments.
 5. Later readers whose values match on those segments get that copy, whatever else they belong to.
 
-Worked example with segments `subscriber`, `newsletter`, `meter`:
+Worked example with segments `subscriber`, `newsletter`, and `donor`. On `/article-1`, subscribers see the full article. Non-subscribers see an excerpt, and the template then checks `newsletter` to decide between a "read the rest in our newsletter" teaser and a signup form.
 
 | Reader | Membership | `/article-1` consults | Key |
 | --- | --- | --- | --- |
 | A | subscriber | subscriber | `{subscriber=1}` |
 | B | subscriber, newsletter | subscriber | `{subscriber=1}` (shares A's copy) |
-| C | newsletter, meter=m2 | subscriber, meter | `{subscriber=none, meter=m2}` |
-| D | meter=m2 | subscriber, meter | `{subscriber=none, meter=m2}` (shares C's copy) |
-| E | newsletter, on `/about` | nothing | `{}` (one copy for everyone) |
+| C | newsletter, donor | subscriber, newsletter | `{subscriber=none, newsletter=1}` |
+| D | newsletter | subscriber, newsletter | `{subscriber=none, newsletter=1}` (shares C's copy) |
+| E | donor, on `/about` | nothing | `{}` (one copy for everyone) |
 
-Reader C consults `meter` and reader A does not, because the metering gate only runs for non-subscribers. The consulted set for one URL is not fixed. That is safe as long as each stored copy is keyed on the set its own render reported.
+Reader C consults `newsletter` and reader A does not, because that check only runs for non-subscribers. The consulted set for one URL is not fixed. That is safe as long as each stored copy is keyed on the set its own render reported.
 
 On the wire, reader B's cold request and origin's response look like:
 
@@ -149,7 +146,7 @@ Each item below is meant to become an acceptance test or a guardrail. The advers
 | No cached fragment without its dependencies | Code review guardrail plus a test that a fragment stored with gated content replays its set through `declare_segment_dependency()`. |
 | No unreported reads | Static analysis guardrail (see Standards). Debug-mode log of any direct `Vary_Cache` read. |
 | Signal present on every output path | Integration test per path: singular, archive, search, feed, oEmbed, REST. |
-| Edge honors the signal | Test on a VIP test application: the stored variant count per URL equals the product of consulted value counts, not of all segments. |
+| Edge honors the signal | Test on a VIP test application: the stored variant count per URL is at most 2 to the power of the number of consulted segments, not of all configured segments. |
 | Hit rate | Edge cache hit rate on gated URLs within 5 percentage points of today's on the same URLs. |
 | Cookie size | Guardrail: the wrapper warns when the serialized cookie approaches 4 KB. |
 | Provider contract timing | Unit test: assignment after `send_headers` returns a `WP_Error` with the wrapper's own "too late" code. |
@@ -192,6 +189,33 @@ Each item below is meant to become an acceptance test or a guardrail. The advers
 7. Can `register_group()` and `set_group_for_user()` be called reliably before `send_headers` on every request path?
 8. How many segments co-occur on one page in practice? This decides whether the per-segment `Vary` direction's variant count is acceptable.
 
+## Future: stepped segments (metering)
+
+Anonymous metering (`anon`, `m1`, `m2`, `m3`, `wall`) is part of the wider project but not the focus of this spec. This section records how it can fit so the design here does not close the door on it.
+
+**What a stepped segment is.** A segment whose value is one of a known list instead of a single "in" token. A reader on their second free article holds `meter=m2`. `Vary_Cache` already stores groups as name and value pairs, so the cookie format needs no change.
+
+**What the API would add.**
+
+```php
+register_segment( 'meter', [ 'values' => [ 'anon', 'm1', 'm2', 'm3', 'wall' ] ] );
+
+assign_reader_to_segment( 'meter', 'm2' );
+
+$step = get_reader_segment_value( 'meter' );       // 'm2', or null for none
+is_reader_in_segment( 'meter', 'wall' );           // optional exact-value check
+```
+
+**What stays the same.** Every read records the segment name in the consulted set, exactly as for boolean segments. The response signal still names segments, not values. The edge still derives the key from the named segments plus the reader's values, which it already has from the cookie. So neither the signal format nor the edge logic changes shape. Only the number of possible values per segment grows.
+
+**What changes.**
+
+- Variants per URL become the product of each consulted segment's value count (including `none`) rather than 2 to the power of the segment count. `subscriber` (2 states) and `meter` (6 states) give at most 12 copies of one URL, fewer in practice since metering only runs for non-subscribers.
+- The value is written by an Edge Worker on cache HITs, because a HIT never reaches origin and the count must still advance. That makes the worker a cookie writer that must reproduce the `Vary_Cache` format exactly, including sort order and the version prefix, and in encrypted mode it would need the site key.
+- The registry gains a `values` list so the edge can emit `none` and validate values.
+
+**Left out of this spec.** The metering algorithm, the Edge Worker, the `anon` through `wall` sequence, and how metering interacts with crawler classification. Those belong to the metering work.
+
 ## Standards
 
 ### Static analysis
@@ -219,7 +243,7 @@ Each item below is meant to become an acceptance test or a guardrail. The advers
 
 - Zero gated bytes in any non-entitled render across all configured segments.
 - Edge cache hit rate on gated URLs within 5 percentage points of today's on the same URLs.
-- Stored variants per URL bounded by the product of consulted value counts, never by the number of configured segments.
+- Stored variants per URL bounded by 2 to the power of the number of consulted segments, never by the number of configured segments.
 - Serialized cookie size under 4 KB with headroom, with a warning emitted before the limit.
 - Origin time-to-first-byte and peak memory on buffered responses measured and recorded before and after, with an agreed ceiling.
 
