@@ -192,5 +192,9 @@ Each of these has bitten. Don't rediscover them.
 - **ESLint is flat config.** `@wordpress/scripts` 36 ships
   `eslint.config.cjs`; a legacy `.eslintrc` is ignored. Scripts in `bin/`
   need `/* eslint-disable no-console */` to print.
+- **`composer.lock` must resolve on PHP 8.1, not the host's PHP.**
+  `composer.json` pins `config.platform.php` to `8.1.0` so a newer host
+  cannot lock a package that CI (8.3) or the wp-env container (8.3) cannot
+  install. Never remove the pin to make a local `composer update` pass.
 - **`WP_TESTS_DIR` is only set inside wp-env.** Running `vendor/bin/phpunit`
   on the host fails fast with a message pointing to `npm run test:php`.
