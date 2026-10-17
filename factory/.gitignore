@@ -1,0 +1,37 @@
+# --- Request-specific artifacts (never commit) ---
+
+# Per-run state, stories, briefs, summaries, reports, feedback files
+runs/
+
+# Cloned target repos (vip-go-api, vip-dashboard, vip-go-admin-console) and their worktrees
+workspaces/
+
+# Evidence captured during a run (screenshots, recordings, probe output)
+.artifacts/
+**/.artifacts/
+
+# Worktrees created by the new-feature skill, wherever a harness puts them
+.worktrees/
+.claude/worktrees/
+
+# Skill-creator eval workspaces and review feedback
+*-workspace/
+feedback.json
+eval_set*.json
+
+# --- Local configuration and secrets ---
+
+.env
+.env.*
+*.local
+.claude/settings.local.json
+config/config.dev.json
+
+# --- Tooling and OS noise ---
+
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
