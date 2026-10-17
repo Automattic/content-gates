@@ -53,6 +53,13 @@ final class Plugin {
 
 		$this->booted = true;
 
+		Segment_Repository::register_hooks();
+		Membership::register_hooks();
+		Block_Visibility::register_hooks();
+		Editor::register_hooks();
+		Admin::register_hooks();
+		Rest_API::register_hooks();
+
 		/**
 		 * Fires after Content Gates has registered its hooks.
 		 *

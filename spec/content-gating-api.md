@@ -2,6 +2,8 @@
 
 Status: draft for investigation. This document describes the API surface and the contract between WordPress and the VIP edge cache. It does not prescribe an implementation.
 
+Prototype note: the local implementation maps a segment post ID to `cg-<ID>`, implements boolean membership contract version `1`, and emits provisional `X-Content-Gates-Vary` and debug headers after buffered rendering. It uses WPVIP `Vary_Cache` when available and a local-only compatibility adapter otherwise. These choices enable origin-level verification; they do not settle or claim VIP edge support for the signal.
+
 ## API summary
 
 **The situation.** A publisher sorts readers into groups: subscriber, newsletter member, someone on their second free article this month, a search crawler. Parts of a page are only shown to some groups. To stay fast, VIP stores finished copies of each page at the edge and serves them without running WordPress.

@@ -8,6 +8,8 @@
 		"node": ">=20"
 	},
 	"scripts": {
+		"build": "wp-scripts build",
+		"start": "wp-scripts start",
 		"doctor": "node bin/doctor.mjs",
 		"env": "wp-env",
 		"env:tests": "wp-env --config=.wp-env.tests.json",

@@ -62,4 +62,6 @@ function autoload( string $class_name ): void {
 
 spl_autoload_register( __NAMESPACE__ . '\\autoload' );
 
+require_once CONTENT_GATES_PATH . 'inc/functions.php';
+
 Plugin::instance()->boot();
