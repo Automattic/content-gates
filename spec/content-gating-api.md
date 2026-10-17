@@ -30,8 +30,6 @@ Status: draft for investigation. This document describes the API surface and the
    } else {
        the_excerpt();
    }
-
-   declare_segment_dependency( 'subscriber' );        // record a dependency without reading
    ```
 
 3. Report which groups the page looked at. Done by the API itself after the page finishes rendering. The list travels with the response so the edge stores the page under only those groups.
@@ -50,7 +48,7 @@ Status: draft for investigation. This document describes the API surface and the
 
 **The catch.** The report can only be written after rendering, because that is the only time we know which groups were checked. `Vary_Cache` sends its cache instructions before rendering starts. Closing that gap needs changes in how WordPress sends the response and in what the edge does with it. This document says what those changes must achieve, not how to build them.
 
-**Terms.** A **segment** is a named group readers can be gated against (one `Vary_Cache` group). In this spec a reader is either in a segment or not. The cookie records a fixed token (`1`) for "in", and the API treats "not in" as a distinct state called `none`. Segments with several possible values, such as metering steps, are described under Future: stepped segments and are not the focus here. **Membership** is all values a reader holds, carried in the cookie. The **consulted set** is the segment names one response read while rendering. The **variant key** is membership restricted to the consulted set, including `none` entries, and is what the cache should key on.
+**Terms.** A **segment** is a named group readers can be gated against (one `Vary_Cache` group). In this spec a reader is either in a segment or not. The cookie records a fixed token (`1`) for "in", and the API treats "not in" as a distinct state called `none`. Segments with several possible values, such as metering steps, are described under Future work and are not the focus here. **Membership** is all values a reader holds, carried in the cookie. The **consulted set** is the segment names one response read while rendering. The **variant key** is membership restricted to the consulted set, including `none` entries, and is what the cache should key on.
 
 ## Use cases
 
@@ -70,13 +68,11 @@ A provider running in the browser calls an uncacheable endpoint that performs th
 
 ### The edge puts a reader into a segment
 
-Crawler classification runs in a VIP Edge Worker, because a cache HIT never reaches origin. The worker writes the same cookie, in the same format, as a second writer alongside `Vary_Cache`. Anonymous metering will use the same mechanism later (see Future: stepped segments).
+Crawler classification runs in a VIP Edge Worker, because a cache HIT never reaches origin. The worker writes the same cookie, in the same format, as a second writer alongside `Vary_Cache`. Anonymous metering will use the same mechanism later (see Future work).
 
 ### A template author gates content
 
 Theme, block, shortcode, and widget code calls `is_reader_in_segment()` and branches on the answer. Gated content is omitted from the HTML for readers who are not entitled. Every call records the segment in the consulted set, whether or not the reader was in it and whether or not anything was shown.
-
-Code that knows a response depends on a segment without reading it, for example when reusing a cached fragment, calls `declare_segment_dependency()`.
 
 ### A reader requests a page
 
@@ -143,7 +139,7 @@ Each item below is meant to become an acceptance test or a guardrail. The advers
 | Nested gates key on their own set | Integration test: render `/article-1` as a non-subscriber and as a subscriber. Assert the two responses report different sets and are stored under different keys. Assert a subscriber is never served the non-subscriber copy. |
 | Readers who differ only in unconsulted segments share a copy | Integration test: readers A and B above produce one stored copy. |
 | Empty set means one copy | Integration test: a page with no gates reports an empty set and carries no segmentation `Vary` header. |
-| No cached fragment without its dependencies | Code review guardrail plus a test that a fragment stored with gated content replays its set through `declare_segment_dependency()`. |
+| No gated HTML in fragment caches | Code review guardrail: gated content is never stored in the object cache, transients, or a block render cache in this slice. |
 | No unreported reads | Static analysis guardrail (see Standards). Debug-mode log of any direct `Vary_Cache` read. |
 | Signal present on every output path | Integration test per path: singular, archive, search, feed, oEmbed, REST. |
 | Edge honors the signal | Test on a VIP test application: the stored variant count per URL is at most 2 to the power of the number of consulted segments, not of all configured segments. |
@@ -173,7 +169,7 @@ Each item below is meant to become an acceptance test or a guardrail. The advers
 - Origin-side prediction alone, keeping the existing `Vary` header. It still keys on the full cookie.
 - Path-scoped cookies carrying one page's segments. Cookie count explodes and path matching is fragile.
 - Reading membership from anywhere but the wrapper.
-- Storing rendered gated HTML in the object cache, transients, or a block render cache without its consulted set.
+- Storing rendered gated HTML in the object cache, transients, or a block render cache. Fragment caching of gated content is out of scope for this slice (see Future work).
 - Keying a stored copy on a set learned from a different render of the same URL.
 - Assuming HTTP trailers work end to end.
 - Rendering gated content and hiding it client-side. The whole point is that it never leaves origin.
@@ -189,7 +185,9 @@ Each item below is meant to become an acceptance test or a guardrail. The advers
 7. Can `register_group()` and `set_group_for_user()` be called reliably before `send_headers` on every request path?
 8. How many segments co-occur on one page in practice? This decides whether the per-segment `Vary` direction's variant count is acceptable.
 
-## Future: stepped segments (metering)
+## Future work
+
+### Stepped segments (metering)
 
 Anonymous metering (`anon`, `m1`, `m2`, `m3`, `wall`) is part of the wider project but not the focus of this spec. This section records how it can fit so the design here does not close the door on it.
 
@@ -216,6 +214,10 @@ is_reader_in_segment( 'meter', 'wall' );           // optional exact-value check
 
 **Left out of this spec.** The metering algorithm, the Edge Worker, the `anon` through `wall` sequence, and how metering interacts with crawler classification. Those belong to the metering work.
 
+### Cached fragments
+
+This slice never stores rendered gated HTML in the object cache, transients, or a block render cache. If that changes, a fragment produced by a render that read `subscriber` would be reused by a later request that reads nothing, and the dependency would be lost. Supporting it would need the fragment cache to store the consulted set alongside the HTML and replay it into the current response, which means an explicit "declare a dependency without reading" call on the API. That call is left out until there is a concrete need for it. The filter on the finalized set remains the only manual adjustment point for now.
+
 ## Standards
 
 ### Static analysis
@@ -227,7 +229,7 @@ is_reader_in_segment( 'meter', 'wall' );           // optional exact-value check
 ### Code standards
 
 - WordPress PHP coding standards. Public functions are documented with `@since` and a contract version.
-- Public function names are the contract. The placeholder names in this document (`assign_reader_to_segment`, `declare_segment_dependency`, and so on) can change before the first release but not after.
+- Public function names are the contract. The placeholder names in this document (`register_segment`, `assign_reader_to_segment`, and so on) can change before the first release but not after.
 - Errors are returned as `WP_Error` with wrapper-specific codes, so callers can distinguish "too late in the request" from "invalid segment" from "not registered."
 - Debug output is gated on `WP_DEBUG` and never changes behavior.
 - No em dashes in comments or docs.
