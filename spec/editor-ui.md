@@ -1,6 +1,16 @@
 # Editor UI
 
-Source: [Content Gating PRD](https://linear.app/a8c/project/cms-content-gating-cache-aware-anonymous-gating-7ee422c04ec1/overview), especially “What's in this version,” “Out of Scope,” and “Success and Measurement.” The [companion PRD](https://linear.app/a8c/document/prd-detail-discovery-plan-competition-risks-ownership-e2a33a453bdb) adds discovery criteria and accepted trade-offs.
+This file specifies content assignment, server-side withholding, and delivery verification. [Segment Admin](segment-admin.md) specifies segment management, shared project context, discovery, and accepted risks. Together with the [Content Gating API spec](content-gating-api.md), these are the implementation requirements. The original [PRD](https://linear.app/a8c/project/cms-content-gating-cache-aware-anonymous-gating-7ee422c04ec1/overview) and [discovery document](https://linear.app/a8c/document/prd-detail-discovery-plan-competition-risks-ownership-e2a33a453bdb) are provenance; reading them is not required to understand this spec. Explicit decisions in these specs supersede the original proposals.
+
+## Problem and Goals
+
+Newspack's anonymous metering model sends the full restricted article and a gate in a hidden div, then uses `Metering::render_frontend_metering_gate()` and client-side JavaScript to choose what to show. A reader, bot, or agent can obtain the paid article by disabling JavaScript, inspecting source, or scraping the response. That model does not meet this project's protection requirement and does not use VIP's cache personalization to separate entitled and non-entitled responses.
+
+The replacement must withhold restricted content at origin, retain fast edge-cache delivery, accept membership decisions from multiple entitlement providers, and serve search and AI crawlers an SEO-correct variant. It supports static, cookie-based memberships. Dynamic restoration after the initial render belongs to separate fill-endpoint work.
+
+An entitled subscriber should retain access to the same full article they can read today; login alone is not an entitlement. Humans and agent/MCP callers must meet the same content-delivery requirements. The block dropdown assigns content to a reader segment; it does not implement subscriptions or determine membership.
+
+## Scope and Editor Design
 
 This spec covers assigning content to reader segments in the editor and verifying that those assignments affect delivery. For this slice, a segment is a custom post type record with a name, stable post ID, and active/inactive status. Segments can be deactivated but cannot be deleted. Membership comes from an entitlement provider, except for anonymous metering and crawler classification.
 
@@ -13,7 +23,7 @@ The block UI adds a **Segment** dropdown to the settings for Group blocks (`core
 - As an editor, I can save content assignments and reopen the content with those assignments intact. The editor assigns content to a segment; it does not decide whether an individual reader qualifies for membership.
 - As an editor, I can still identify existing assignments to a deactivated segment, marked inactive. The segment is excluded from new assignment choices, and its existing references are preserved.
 - As a non-entitled anonymous reader, I receive the public content and applicable gate, with restricted content omitted from the server response. Disabling JavaScript, inspecting source, or scraping the response does not reveal the restricted content.
-- As an entitled reader, including an authenticated subscriber with a valid entitlement, I receive the content allowed by my segment memberships. Existing Newspack assignment and restriction semantics are preserved.
+- As an entitled reader, including an authenticated subscriber with a valid entitlement, I receive the content allowed by my segment memberships. Integration must preserve legitimate subscriber access while applying this spec's Group-based assignments.
 - As a publisher using anonymous metering, my content assignments work with the edge-managed `anon` / `m1` / `m2` / `m3` / `wall` sequence. A first-time reader sees the gate one request earlier than in Newspack today: granting metered access requires a round trip. The editor must not depend on a client-side reveal to restore withheld content.
 - As a search or AI crawler, I receive the separate crawler variant with accurate paywall structured data. The editor's content assignments must remain compatible with identifying the gated portions in that markup.
 
@@ -52,7 +62,10 @@ The predicate validates the segment reference and uses `is_reader_in_segment( $s
 
 - Apply enforcement to public server-rendered content, including REST and feed paths that render blocks. Do not exempt a request merely because `REST_REQUEST` or `is_admin()` is true. Any authoring-preview exception must check permission to edit the relevant content.
 - A block render filter does not protect delivery paths that return raw saved content or generate excerpts without rendering blocks. Those paths need the same restriction decision before exposing restricted content.
-- Resolve membership and cache personalization before rendering. The resulting HTML is specific to the reader's full membership combination; edge-cache hits must select that variant without requiring this PHP callback to run again.
+- Load the segment registry and perform cookie-writing assignments before `send_headers`. During rendering, route every membership check through the public API wrapper, including checks that return `false`. The wrapper records the consulted segments and finalizes that set after rendering. The cache variant depends on the reader's values for that response's consulted set, including non-membership, as defined in the [API spec](content-gating-api.md). Full-cookie keying is not the current design.
+- A denied outer Group short-circuits its contents, so inner segment checks may not run. Each stored response must use the consulted set from its own render, not a set learned from another reader's render of the same URL. Finalization must cover non-HTML rendering paths as well. The exact edge signal and response-buffering mechanism remain API implementation investigations.
+- Do not store rendered gated HTML in object-cache entries, transients, or block fragment caches in this slice. Reusing a fragment can conceal the membership reads that produced it. Edge-cache hits must select the correct completed response without running the PHP block callback again.
+- The cache-personalization contract targets anonymous and cookie-identified readers. Logged-in WordPress users bypass VIP's page cache; preserving their legitimate content access is still required, but their requests do not prove anonymous edge-cache correctness.
 
 ## Finish Line / Verification
 
@@ -62,19 +75,26 @@ The predicate validates the segment reference and uses `is_reader_in_segment( $s
 - Select a segment, save, and reopen. Confirm that its post ID is persisted in the Group's block attributes and used by the restriction check for the Group and its contents. Change the selection and clear it with **No segment**; verify that each change survives saving and reopening. A new Group starts with no segment assigned.
 - Rename, deactivate, and reactivate an assigned segment. Confirm that its ID and existing assignments remain intact, inactive assignments are marked as such, and only active segments are offered for new assignments. Verify runtime behavior against the deactivation semantics once resolved in the Segment Admin spec; do not silently discard assignments.
 - Exercise unassigned and restricted Groups within the same post, different Groups assigned to different segments, and readers with different combinations of memberships. Verify that a non-entitled reader receives none of the restricted Group's content. The dropdown selects one segment per Group; it does not expose AND/OR or priority rules.
-- Demonstrate that editor content assignment and the associated `Content_Gate`, `Block_Visibility`, and `Access_Rules` restriction checks function with Reader Activation and WooCommerce absent or stubbed out. This is a discovery requirement, not an already-proven compatibility claim.
+- Demonstrate that the Group dropdown and withholding work with Reader Activation and WooCommerce absent or stubbed out. Where the integration reuses Newspack's `Content_Gate`, `Block_Visibility`, `Content_Restriction_Control`, or `Access_Rules`, prove those paths work under the same conditions. Reusing their patterns does not require importing their full gate-builder or eligibility model; dependency isolation remains an unverified discovery requirement.
 
 ### Delivery and cache correctness
 
 - For every configured segment, test entitled and non-entitled requests against the same content. Inspect raw responses, including with JavaScript disabled. Non-entitled anonymous page renders contain zero gated bytes; entitled requests retain the expected full content.
 - Include nested Groups and a dynamic child block in a restricted Group. With the preferred pre-render approach, verify that a denied Group produces no wrapper or child HTML and its child render callback does not execute. A permitted outer Group must still allow a restricted inner Group to enforce its own segment check.
 - Verify that rendering for different readers does not change saved block attributes, and that an entitled reader still respects an author's core visibility settings. Exercise rendered REST/feed responses and paths that expose raw content or derive excerpts separately.
-- Repeat against cold origin responses and warm edge-cache responses, including alternating readers with different membership combinations. A cached entitled response must not be served to a non-entitled reader. Each segment is a `Vary_Cache` group, with a variant for the full membership combination encoded by the reader's cookie.
+- Repeat against cold origin responses and warm edge-cache responses, including alternating readers with different membership combinations. A cached entitled response must not be served to a non-entitled reader. Each segment is a `Vary_Cache` group; the API records which groups the render consulted. Readers differing only in unconsulted segments should share a response. Verify that denied outer Groups and permitted outer Groups produce the correct separate consulted sets when their inner gates differ.
 - Verify that the Newspack integration suppresses its client-side metering reveal and connects segment membership to the restriction check. Rendering gated content in hidden HTML is a failure even if the visible page looks correct.
 - Edit gated content or its assignments, purge, and verify all affected segmented and metered variants, including the first response after the purge. Do not assume a URL purge has cleared every variant without observing it on the VIP test application.
 - Verify zero restricted-content leaks through anonymous REST and RSS/feed responses as well as page HTML. Triage oEmbed, AMP, head metadata, sitemaps, listing teasers, and cached objects; record a definitive result for each. Other surfaces may ship with an explicit known limitation; page render, REST, and feeds must meet the zero-leak requirement.
 - On the crawler variant, verify accurate `isAccessibleForFree` and `hasPart` / `cssSelector` paywall markup and acceptance by Google's Rich Results Test. Crawler classification belongs to the edge integration, not a new editor eligibility control.
 - Include these scenarios in the project's adversarial cache-correctness suite. On representative gated URLs and realistic segment combinations, the edge hit rate must stay within 5 percentage points of the baseline for the same URLs. Coordinate this measurement with the cache implementation.
+
+### Release evidence
+
+- Ship the editor assignment and rendering behavior on a VIP test application, alongside the segment registry, provider bridge, membership API, metering, and crawler features. A local demonstration alone does not prove edge behavior.
+- Save fixtures covering every configured segment, raw-response assertions, warm/cold cache results, purge results, and crawler structured-data validation. Keep the benchmark workload, baseline hit rate, observed hit rate, and environment/version information with the results.
+- Maintain a leak-surface matrix for page render, REST, feeds, oEmbed, AMP, head metadata, sitemaps, listing teasers, and cached objects. Each row records the test, result, and either a fix or an explicit known limitation. Page render, REST, and feeds require zero restricted bytes; gaps on those surfaces cannot be deferred. Newspack's prior leak incidents make REST and feeds release requirements rather than optional checks.
+- The adversarial cache-correctness suite must pass. Account for every triage finding and carry the accepted cookie-forgery and user-agent-spoofing limitations from [Segment Admin](segment-admin.md) into release documentation; do not claim this is a tamper-proof entitlement system.
 
 ## Temporary No-Go
 
@@ -83,7 +103,7 @@ The predicate validates the segment reference and uses `is_reader_in_segment( $s
 - A new visual, no-code interface for gating template parts, global patterns, or widget areas is outside this slice. Developers can gate those surfaces through the public `is_reader_in_segment( $segment_id )` PHP check.
 - A fill endpoint or fragment hydration after the initial response belongs to the separate Content Fill Endpoint work. Do not add editor behavior that requires it for this release.
 - Do not expand this slice into content gifting, premium newsletters, group subscriptions, or identity, registration, and verification changes.
-- Do not treat integration discovery as complete until the required Newspack hooks have a concrete patch opened against `newspack-workspace`, dependency isolation is demonstrated, and cache-group registration and assignment timing before `send_headers` is validated. The PRD identifies suppression of client-side reveal and a segment-to-restriction bridge as likely patch requirements; their exact implementation remains open.
+- Do not treat integration discovery as complete until the required Newspack hooks have a concrete patch opened against `newspack-workspace`, dependency isolation is demonstrated, and cache-group registration and assignment timing before `send_headers` is validated. Likely patch requirements are suppression of client-side metering reveal and a segment-to-restriction bridge; their exact implementation remains open.
 
 ## Permanent No-Go
 
