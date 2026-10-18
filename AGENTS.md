@@ -42,7 +42,9 @@ npm run lint:js       # wp-scripts lint-js
 composer lint:fix     # PHPCBF
 ```
 
-No build step exists yet; there is no client-side code. Packaging is TODO.
+There is no build step. The only client-side code is `assets/editor.js`, a
+plain script (no JSX, no bundler) that uses the `wp.*` globals and is
+enqueued as-is by `inc/editor/class-editor-assets.php`. Packaging is TODO.
 
 Class autoloading follows WordPress file naming:
 `ContentGates\Providers\Static_Provider` lives at
@@ -82,10 +84,16 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `docs/`: docs for human users, including the public hook reference
 - `spec/`: product specification
 - `bin/`: repo scripts (`doctor.mjs`)
+- `assets/`: `editor.js`, the block editor integration (plain script)
 - `tests/`: ALL tests, fixtures, and test tooling
   - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `test-*.php`)
   - `tests/e2e/`: Playwright specs and `global-setup.ts`
-  - `tests/debugging/`: debugging/analysis tools
+  - `tests/e2e/fixtures/mu-plugins/`: mapped into BOTH wp-env sites as
+    `wp-content/mu-plugins`. Holds the test-only entitlement provider
+    (`content-gates-test-provider.php`), which grants every membership
+    request. Never deploy it.
+  - `tests/debugging/`: debugging/analysis tools, including
+    `edge-sim.mjs`, the local WPVIP edge cache simulator (see its README)
 - `.github/workflows/ci.yml`: static checks, PHPUnit, Playwright
 - `artifacts/`: gitignored Playwright output and auth storage state
 
@@ -171,8 +179,13 @@ They exist so a failure is observable without re-instrumenting:
 - **Playwright traces**: every failure keeps a trace, video, and
   `error-context.md` under `artifacts/test-results/`. Open with
   `npx playwright show-trace <trace.zip>`.
-- TODO: Add cache/cookie/segment inspection tools under `tests/debugging/`
-  once Phase B exists.
+- **`npm run edge-sim -- --origin http://localhost:8889`**: a local edge
+  cache simulator in front of a wp-env site (default port 8891). Responses
+  carry `X-Edge-Sim: HIT|MISS|PASS` and `X-Edge-Sim-Key`; `GET
+  /__edge-sim/stats` lists stored variants per URL and their consulted
+  sets. Read `tests/debugging/README.md` for its variances from WPVIP
+  before treating a result as platform evidence. Stop it before
+  `npm run test:php`.
 
 ## Gotchas
 
@@ -183,6 +196,13 @@ Each of these has bitten. Don't rediscover them.
   `default`, so every page on :8889 returns 500 for logged-in users until
   a real theme is active. `tests/e2e/global-setup.ts` pins
   `twentytwentyfive` for this reason. Do not remove that line.
+- **PHPUnit also leaves the tests site with the plugin inactive and plain
+  permalinks.** The same install step deactivates every plugin and resets
+  `permalink_structure`, which breaks `/wp-json/`, `/feed/`, and
+  `<permalink>embed/` routing. `tests/e2e/global-setup.ts` fixes all
+  three: it pins the theme, activates `content-gates`, and submits the
+  Permalinks form to set `/%postname%/`, then probes `/wp-json/` to prove
+  the rewrite rules are live. Keep all of that in place.
 - **`wp-env start` without `testsEnvironment: false` starts two sites.** The
   default config would also claim :8889 and race the real tests config.
   Both configs set the flag.
