@@ -100,7 +100,21 @@ final class Plugin {
 		$this->finalizer->register();
 
 		// --- Rendering and editor (builder D) ---------------------------
+		$enforcer = new Rendering\Block_Enforcer( $this->membership, $this->segments );
+		$enforcer->register();
+
+		$excerpt_guard = new Rendering\Excerpt_Guard( new Rendering\Block_Stripper( $enforcer ) );
+		$excerpt_guard->register();
+
+		$crawler_markup = new Rendering\Crawler_Markup( $this->membership );
+		$crawler_markup->register();
+
+		$editor_assets = new Editor\Editor_Assets( $this->segments );
+		$editor_assets->register();
+
 		// --- REST (builder C) -------------------------------------------
+		$membership_controller = new REST\Membership_Controller( $this->membership, $this->segments );
+		$membership_controller->register();
 
 		/**
 		 * Fires after Content Gates has registered its hooks.
