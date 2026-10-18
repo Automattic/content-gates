@@ -5,5 +5,6 @@ parameters:
 		- inc
 		- tests/unit
 	scanFiles:
+		- tests/stubs/vip.php
 		- vendor/php-stubs/wordpress-tests-stubs/wordpress-tests-stubs.php
 	treatPhpDocTypesAsCertain: false

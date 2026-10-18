@@ -52,6 +52,34 @@ final class Plugin {
 		}
 
 		$this->booted = true;
+		require_once CONTENT_GATES_PATH . 'inc/functions.php';
+		Admin::register();
+		Editor::register();
+		Protection::register();
+		Response::register();
+		add_action(
+			'init',
+			static function (): void {
+				Segments::register();
+				Membership::instance()->register();
+			},
+			5
+		);
+		add_action(
+			'init',
+			static function (): void {
+				Membership::instance()->ready();
+			},
+			20
+		);
+		add_action(
+			'switch_blog',
+			static function (): void {
+				Membership::reset();
+				// Cross-site calls after parse cannot safely re-register platform groups.
+				Membership::instance()->problem( 'blog_switched' );
+			}
+		);
 
 		/**
 		 * Fires after Content Gates has registered its hooks.

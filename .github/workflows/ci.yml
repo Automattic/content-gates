@@ -26,9 +26,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - run: npm run build
       - run: composer lint
       - run: composer analyze
       - run: npm run lint:js
+      - run: npm run lint:contract
 
   phpunit:
     name: PHPUnit (wp-env)
@@ -46,7 +48,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - run: npm run build
       - run: npm run env:tests start
+      - run: npm run test:prepare-vip
       - run: npm run test:php
 
   e2e:
@@ -59,8 +63,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run env:tests start
+      - run: npm run test:prepare-vip -- --install
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
