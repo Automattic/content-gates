@@ -9,6 +9,7 @@
 	},
 	"scripts": {
 		"doctor": "node bin/doctor.mjs",
+		"edge-sim": "node tests/debugging/edge-sim.mjs",
 		"env": "wp-env",
 		"env:tests": "wp-env --config=.wp-env.tests.json",
 		"lint": "npm run lint:php && npm run analyze:php && npm run lint:js",

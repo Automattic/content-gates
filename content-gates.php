@@ -25,6 +25,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'CONTENT_GATES_VERSION', '0.1.0' );
 define( 'CONTENT_GATES_FILE', __FILE__ );
 define( 'CONTENT_GATES_PATH', __DIR__ . '/' );
+/**
+ * Version of the provider contract (public functions, cookie semantics,
+ * response signal). Bumped independently of the plugin version.
+ */
+define( 'CONTENT_GATES_CONTRACT_VERSION', '1' );
 
 /**
  * Autoload plugin classes from `inc/` using WordPress file naming.
@@ -61,5 +66,7 @@ function autoload( string $class_name ): void {
 }
 
 spl_autoload_register( __NAMESPACE__ . '\\autoload' );
+
+require_once CONTENT_GATES_PATH . 'inc/functions.php';
 
 Plugin::instance()->boot();
