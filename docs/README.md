@@ -7,8 +7,12 @@ REST, and feed responses.
 
 ## Status
 
-Scaffold only. No gating behavior is implemented yet. See `spec/` for the
-product specification.
+Prototype. The plugin provides segment administration, Group block assignment,
+server-side withholding, a versioned membership API, and consulted-segment
+reporting. The edge signal, cache hit rate, metering, crawler classification,
+and Newspack bridge still need validation or implementation outside this
+repository. See [architecture.md](architecture.md) and
+[known-limitations.md](known-limitations.md).
 
 ## Public hooks
 
@@ -22,3 +26,6 @@ should hook here to register themselves.
 | `$plugin` | `ContentGates\Plugin` | The plugin instance. |
 
 Since 0.1.0.
+
+See [public-api.md](public-api.md) for the membership contract and extension
+hooks.

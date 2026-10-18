@@ -75,6 +75,13 @@ Segment administration is a list editor on a page titled **Content Gates** under
 
 ### Decisions still required
 
+For the stakeholder prototype in this repository, the implementation uses
+`content_gate_seg`, `publish` for active, `cg_inactive` for inactive, and an
+active initial state. It maps a segment to `cg_<site-id>_<post-id>`. Existing
+inactive restrictions fail closed and continue to report their stable cache
+group; new assignment is rejected and removal remains available. These are
+provisional implementation decisions, not a final production contract.
+
 - Choose the custom post type slug, the WordPress post-status values representing active/inactive, and the initial status for newly created segments. The storage model and stable post ID are decided. Specify how that site-local post ID maps to the API draft's named segment registry and cookie/cache identifiers; renaming the display name must not change the identifier.
 - Define how deactivation affects existing restrictions, membership checks, and assignment API calls before implementation. Existing references must be preserved and shown as inactive; deactivation must not silently remove content assignments. The runtime access behavior is not yet specified.
 - Resolve dependency isolation, the upstream extension points, API contract details, pre-`send_headers` timing, and realistic cache cardinality before claiming the corresponding verification criteria are met.

@@ -23,6 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 define( 'CONTENT_GATES_VERSION', '0.1.0' );
+define( 'CONTENT_GATES_API_VERSION', '1.0' );
 define( 'CONTENT_GATES_FILE', __FILE__ );
 define( 'CONTENT_GATES_PATH', __DIR__ . '/' );
 
@@ -62,4 +63,11 @@ function autoload( string $class_name ): void {
 
 spl_autoload_register( __NAMESPACE__ . '\\autoload' );
 
-Plugin::instance()->boot();
+require_once CONTENT_GATES_PATH . 'inc/functions.php';
+
+add_action(
+	'plugins_loaded',
+	static function (): void {
+		Plugin::instance()->boot();
+	}
+);
