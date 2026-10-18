@@ -22,15 +22,38 @@ use WP_Post;
  * in summary mode, REST `excerpt.rendered`, and the embed template all
  * read `get_the_excerpt()`, so without this guard they leak gated text.
  *
- * This filter runs on `get_the_excerpt` at priority 9, before core's
- * `wp_trim_excerpt` at 10. When the incoming text is empty and the content
- * mentions the attribute, it trims a clone of the post whose content has
- * been through `Block_Stripper`. Core's callback then receives non-empty
- * text and returns it unchanged, so nothing is trimmed twice.
+ * The guard owns the whole outcome for a gated post, with two callbacks on
+ * `get_the_excerpt` around core's `wp_trim_excerpt` at 10:
+ *
+ * - Priority 9: when the incoming text is empty and the content mentions
+ *   the attribute, trim a clone of the post whose content has been through
+ *   `Block_Stripper`, remember the result for this post, and return it.
+ * - Priority 11: for a post remembered at 9, return the remembered value
+ *   and forget it. Whatever core produced at 10 is discarded.
+ *
+ * The second callback matters when the stripped content trims to `''`
+ * (the post is nothing but gated Groups). Core at 10 treats `''` as "no
+ * excerpt yet" and regenerates one from the original post, which brings
+ * the gated text back. Core's regeneration still runs in that case and its
+ * output passes through the in-process `wp_trim_excerpt` filter before
+ * priority 11 drops it; it never reaches the response.
+ *
+ * Remembered values are keyed by post ID and stacked, so a nested
+ * `get_the_excerpt()` call for the same or another post during the
+ * computation cannot confuse the pairing of 9 and 11.
  *
  * @since 0.1.0
  */
 final class Excerpt_Guard {
+
+	/**
+	 * Excerpts computed at priority 9 and not yet returned at 11.
+	 *
+	 * Post ID => stack of computed excerpts, innermost call last.
+	 *
+	 * @var array<int, list<string>>
+	 */
+	private array $pending = array();
 
 	/**
 	 * Constructor.
@@ -46,10 +69,11 @@ final class Excerpt_Guard {
 	 */
 	public function register(): void {
 		add_filter( 'get_the_excerpt', array( $this, 'filter_excerpt' ), 9, 2 );
+		add_filter( 'get_the_excerpt', array( $this, 'restore_excerpt' ), 11, 2 );
 	}
 
 	/**
-	 * Hook callback for `get_the_excerpt`.
+	 * Hook callback for `get_the_excerpt` at priority 9.
 	 *
 	 * @since 0.1.0
 	 *
@@ -69,6 +93,36 @@ final class Excerpt_Guard {
 		$clone               = clone $post;
 		$clone->post_content = $this->stripper->strip( $post->post_content );
 
-		return wp_trim_excerpt( '', $clone );
+		$excerpt = wp_trim_excerpt( '', $clone );
+
+		$this->pending[ $post->ID ][] = $excerpt;
+
+		return $excerpt;
+	}
+
+	/**
+	 * Hook callback for `get_the_excerpt` at priority 11.
+	 *
+	 * Returns the value computed at priority 9 for this post, if any,
+	 * regardless of what core did at 10.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @param mixed $text The excerpt as left by earlier callbacks.
+	 * @param mixed $post The post.
+	 * @return mixed The guard's value for a handled post, otherwise `$text`.
+	 */
+	public function restore_excerpt( mixed $text, mixed $post = null ): mixed {
+		if ( ! $post instanceof WP_Post || empty( $this->pending[ $post->ID ] ) ) {
+			return $text;
+		}
+
+		$excerpt = array_pop( $this->pending[ $post->ID ] );
+
+		if ( array() === $this->pending[ $post->ID ] ) {
+			unset( $this->pending[ $post->ID ] );
+		}
+
+		return $excerpt;
 	}
 }

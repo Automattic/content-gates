@@ -122,11 +122,15 @@ recording; inactive segments return `null` and record.
 
 ### Helper: `content_gates_membership(): Membership|WP_Error`
 
-Not one of the five, and prefixed. Returns the booted membership layer or
-a `WP_Error` with code `content_gates_not_booted`. Use it for
-`$membership->membership()` (the raw cookie state, **not** recorded) and
-`$membership->consulted()` (the keys read so far). The test provider uses
-it to show membership in its demo box without adding to the consulted set.
+Internal helper; not part of the provider contract. Not one of the five,
+and prefixed; it can change or go away without a contract bump. Returns
+the booted membership layer or a `WP_Error` with code
+`content_gates_not_booted`. Use it for `$membership->membership()` (the
+raw cookie state, **not** recorded) and `$membership->consulted()` (the
+keys read so far). The test provider uses it to show membership in its
+demo box without adding to the consulted set, and only on requests it
+has marked uncacheable (`?content_gates_demo=1`), because an unrecorded
+read on a cacheable page would be served to the wrong readers.
 
 ## Timing rules
 
@@ -276,6 +280,7 @@ responses never carry `X-Content-Gates-Vary`.
 ### `GET`
 
 Public. Returns the reader's current membership and the segment list.
+`membership` is always a JSON object (`{}` when empty, never `[]`).
 Membership is the raw cookie state, including values for inactive
 segments.
 
@@ -299,7 +304,7 @@ page view already carries it.
 
 | Param | Type | Description |
 | --- | --- | --- |
-| `segment` | `int\|string` | Required. Post ID, or key. Numeric strings are converted to integers before the permission check. |
+| `segment` | `int\|string` | Required. Post ID, or key. A string of digits only (`"12"`) is converted to an integer ID before the permission check; anything else (`"1e3"`, `"12.5"`, `" 12"`, `"newsletter"`) is a key, so a numeric-looking key that matches no segment fails with `content_gates_invalid_segment`. |
 | `action` | `"assign"\|"remove"` | Default `assign`. |
 | `value` | `string` | Default `"1"`. Only `A-Z a-z 0-9 _ -`. Ignored on `remove`. |
 

@@ -19,6 +19,7 @@ uses the plugin's own local cookie adapter and a fake `Vary_Cache`.
 | Registration before `send_headers` on every path | `init` 1 registration and the `send_headers` `PHP_INT_MAX - 1` too-late mark are unit tested. Page, REST, feed, embed, and listing paths have Playwright assertions of the signal header against the local adapter. | The spec calls reliable registration and assignment before `send_headers` on REST, admin-ajax, cron, and feeds "the unresolved engineering-validation question". Admin-ajax and cron are not exercised, and nothing has run against the real `Vary_Cache`. |
 | Buffering cost | Full-response buffering from `template_redirect` to `shutdown`. | Time-to-first-byte and peak memory are not measured. |
 | Crawler structured data | JSON-LD with `isAccessibleForFree` and `hasPart`/`cssSelector` is emitted and unit tested for shape. | Not submitted to Google's Rich Results Test. |
+| `core/latest-posts` full-post mode | On WordPress 7.1.3 the block renders post content through `do_blocks()`, so the enforcer applies. | Verified on 7.1.3 only; behavior on the 6.6 floor not verified, since older versions may have rendered raw `post_content` on this path. |
 
 ## Deliberate scope cuts
 
@@ -29,7 +30,7 @@ uses the plugin's own local cookie adapter and a fake `Vary_Cache`.
 | Encrypted cookie mode | See above. |
 | Purge tooling | See above. |
 | Fragment caches | No dependency-recording API exists. The plugin itself caches no gated HTML (see the [leak-surface matrix](leak-surface-matrix.md)). Themes and plugins that cache fragments of gated content hide the reads that produced them, and the plugin cannot detect this. |
-| Surfaces beyond page, REST, and feeds | Triage status (details in the [leak-surface matrix](leak-surface-matrix.md)): **oEmbed** and the **embed template** have a Playwright assertion of zero gated bytes (`leak-surfaces.spec.ts`). **AMP** is not applicable: no AMP plugin is installed or integrated. **Head metadata** (Open Graph, meta description) comes from SEO plugins that may read raw content; not covered, and the tests site has no SEO plugin. **Sitemaps** list URLs and dates only by core's documented behavior; not covered by a test. **Listing teasers**: `core/post-excerpt` reads `get_the_excerpt()` and is covered through the guard; `core/latest-posts` with "display post content" is not covered and may render raw content through its own path. **Search as an oracle**: searching for gated text still matches the post, so a reader can learn whether a term exists in gated content without seeing it. |
+| Surfaces beyond page, REST, and feeds | Triage status (details in the [leak-surface matrix](leak-surface-matrix.md)): **oEmbed** and the **embed template** have a Playwright assertion of zero gated bytes (`leak-surfaces.spec.ts`). **AMP** is not applicable: no AMP plugin is installed or integrated. **Head metadata** (Open Graph, meta description) comes from SEO plugins that may read raw content; not covered, and the tests site has no SEO plugin. **Sitemaps** list URLs and dates only by core's documented behavior; not covered by a test. **Listing teasers**: `core/post-excerpt` reads `get_the_excerpt()` and is covered through the guard; `core/latest-posts` with "display post content" renders through `do_blocks()` on WordPress 7.1.3, so the enforcer applies there; verified on 7.1.3 only, behavior on the 6.6 floor not verified. **Search as an oracle**: searching for gated text still matches the post, so a reader can learn whether a term exists in gated content without seeing it. |
 | Raw content in themes | Themes that call `get_the_content()` and echo it, or run `wp_trim_words()` over `post_content`, bypass block rendering and leak. Only `the_content` (which runs `do_blocks()`) and `get_the_excerpt()` are protected. |
 | Template parts, widgets, shortcodes | No visual control. Developers gate them with `is_reader_in_segment()`. A sitewide read (header, footer) adds that segment to every response's consulted set and doubles the variant count on every URL. |
 | Block types other than `core/group` | Editors wrap content in a Group. The attribute exists only on `core/group`. |
@@ -40,6 +41,15 @@ uses the plugin's own local cookie adapter and a fake `Vary_Cache`.
 These are choices the prototype made where the spec left room. Each
 could be reversed; some would change the contract.
 
+- **Archives and search vary on the union of every listed post's gates.**
+  A listing page runs the excerpt guard for each post, so its consulted
+  set is the union of all gated segments on that page. After the e2e
+  suite, the home page reported nine keys, which allows up to 2^9 stored
+  copies of one URL. This is correct keying, but it is the cardinality
+  risk the API spec flags, and archives and search will hit it first.
+  Options to confirm: cap the number of gated posts per listing, exclude
+  gated posts from teasers, or accept the variant count after measuring
+  real co-occurrence.
 - **Unprefixed public function names.** `register_segment`,
   `assign_reader_to_segment`, `remove_reader_from_segment`,
   `is_reader_in_segment`, `get_reader_segment_value` are global functions

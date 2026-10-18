@@ -106,7 +106,7 @@ final class Plugin {
 		$excerpt_guard = new Rendering\Excerpt_Guard( new Rendering\Block_Stripper( $enforcer ) );
 		$excerpt_guard->register();
 
-		$crawler_markup = new Rendering\Crawler_Markup( $this->membership );
+		$crawler_markup = new Rendering\Crawler_Markup( $enforcer );
 		$crawler_markup->register();
 
 		$editor_assets = new Editor\Editor_Assets( $this->segments );

@@ -27,6 +27,14 @@ final class Headers {
 	private static array $sent = array();
 
 	/**
+	 * Test seam: pretend output has (true) or has not (false) started.
+	 * Null uses the real `headers_sent()`.
+	 *
+	 * @var bool|null
+	 */
+	private static ?bool $output_started = null;
+
+	/**
 	 * Send a header when still possible, and record it either way.
 	 *
 	 * @since 0.1.0
@@ -34,16 +42,19 @@ final class Headers {
 	 * @param string $name    Header name.
 	 * @param string $value   Header value.
 	 * @param bool   $replace Replace an earlier header of the same name.
-	 * @return bool Whether `header()` was called (false when output already started).
+	 * @return bool Whether the header could be sent (false when output already started).
 	 */
 	public static function send( string $name, string $value, bool $replace = true ): bool {
 		self::$sent[ $name ] = $value;
 
-		if ( headers_sent() ) {
+		if ( self::$output_started ?? headers_sent() ) {
 			return false;
 		}
 
-		header( $name . ': ' . $value, $replace );
+		// Under simulation the header is only recorded: the CLI SAPI would warn.
+		if ( null === self::$output_started ) {
+			header( $name . ': ' . $value, $replace );
+		}
 
 		return true;
 	}
@@ -60,11 +71,28 @@ final class Headers {
 	}
 
 	/**
-	 * Forget recorded headers. For tests.
+	 * Override `headers_sent()`. For tests.
+	 *
+	 * PHPUnit prints to stdout before any test runs, so under the CLI SAPI
+	 * `headers_sent()` is always true. Pass false so `send()` reports
+	 * success as it would on a web request, true to simulate output that
+	 * already started, or null to use the real check again.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @param bool|null $started Simulated `headers_sent()` result, or null for the real one.
+	 */
+	public static function simulate_output_started( ?bool $started ): void {
+		self::$output_started = $started;
+	}
+
+	/**
+	 * Forget recorded headers and clear the simulation. For tests.
 	 *
 	 * @since 0.1.0
 	 */
 	public static function reset(): void {
-		self::$sent = array();
+		self::$sent           = array();
+		self::$output_started = null;
 	}
 }

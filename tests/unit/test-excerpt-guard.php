@@ -34,11 +34,12 @@ final class Test_Excerpt_Guard extends Gating_Test_Case {
 	}
 
 	/**
-	 * The plugin hooks the guard before core's trimmer.
+	 * The plugin hooks the guard on both sides of core's trimmer.
 	 */
-	public function test_plugin_hooks_guard_at_priority_nine(): void {
+	public function test_plugin_hooks_guard_around_core_trimmer(): void {
 		$this->assert_hooked( 'get_the_excerpt', Excerpt_Guard::class, 'filter_excerpt', 9 );
 		$this->assertSame( 10, has_filter( 'get_the_excerpt', 'wp_trim_excerpt' ) );
+		$this->assert_hooked( 'get_the_excerpt', Excerpt_Guard::class, 'restore_excerpt', 11 );
 	}
 
 	/**
@@ -183,5 +184,143 @@ final class Test_Excerpt_Guard extends Gating_Test_Case {
 		$this->assertIsArray( $data );
 		$this->assertStringContainsString( 'SECRET', $data['content']['rendered'] );
 		$this->assertStringContainsString( 'SECRET', $data['excerpt']['rendered'] );
+	}
+
+	/**
+	 * A post that is nothing but a gated Group has an empty excerpt for a
+	 * non-member. Core at priority 10 regenerates from the original post
+	 * when it is handed '', and that regeneration must be discarded.
+	 */
+	public function test_only_gated_content_yields_empty_excerpt_for_non_member(): void {
+		$segment = $this->create_segment( 'Subscribers' );
+		$post_id = $this->create_post( $this->gated_group( $segment->id(), $this->paragraph( 'SECRET words only' ) ) );
+
+		$this->assertSame( '', get_the_excerpt( $post_id ) );
+		$this->assertContains( $segment->key(), $this->consulted() );
+
+		$this->visit( $this->permalink( $post_id ) );
+		$this->assertSame( $post_id, get_the_ID() );
+
+		ob_start();
+		the_excerpt_rss();
+		$rss = (string) ob_get_clean();
+
+		$this->assertSame( '', $rss );
+
+		$response = rest_do_request( new WP_REST_Request( 'GET', '/wp/v2/posts/' . $post_id ) );
+		$this->assertSame( 200, $response->get_status() );
+
+		$data = $response->get_data();
+		$this->assertIsArray( $data );
+		$this->assertSame( '', $data['excerpt']['rendered'] );
+		$this->assertStringNotContainsString( 'SECRET', $data['content']['rendered'] );
+
+		$this->set_reader( array( $segment->key() => '1' ) );
+		$this->assertStringContainsString( 'SECRET words only', get_the_excerpt( $post_id ) );
+
+		$response = rest_do_request( new WP_REST_Request( 'GET', '/wp/v2/posts/' . $post_id ) );
+		$data     = $response->get_data();
+		$this->assertIsArray( $data );
+		$this->assertStringContainsString( 'SECRET words only', $data['excerpt']['rendered'] );
+	}
+
+	/**
+	 * Without the priority 11 callback, core regenerates the excerpt from the
+	 * original post when it receives '' and the gated text comes back. This
+	 * documents why the guard owns both sides of core's trimmer.
+	 */
+	public function test_core_regenerates_from_original_without_restore_callback(): void {
+		$segment = $this->create_segment( 'Subscribers' );
+		$post_id = $this->create_post( $this->gated_group( $segment->id(), $this->paragraph( 'SECRET words only' ) ) );
+
+		$removed = array();
+		$hook    = $GLOBALS['wp_filter']['get_the_excerpt'];
+		$this->assertInstanceOf( \WP_Hook::class, $hook );
+		foreach ( $hook->callbacks[11] ?? array() as $callback ) {
+			$function = $callback['function'] ?? null;
+			if ( is_array( $function ) && ( $function[0] ?? null ) instanceof Excerpt_Guard ) {
+				remove_filter( 'get_the_excerpt', $function, 11 );
+				$removed[] = $function;
+			}
+		}
+		$this->assertCount( 1, $removed, 'The guard must be hooked at priority 11.' );
+
+		try {
+			$leaked = get_the_excerpt( $post_id );
+		} finally {
+			foreach ( $removed as $function ) {
+				add_filter( 'get_the_excerpt', $function, 11, 2 );
+			}
+		}
+
+		$this->assertStringContainsString( 'SECRET', $leaked, 'If this fails, core stopped regenerating from the original post and the priority 11 callback may be redundant.' );
+		$this->assertSame( '', get_the_excerpt( $post_id ), 'With the callback restored, the excerpt is empty again.' );
+	}
+
+	/**
+	 * Two gated Groups and nothing else: each reader gets exactly the
+	 * Groups they are entitled to, and a non-member gets ''.
+	 */
+	public function test_two_gated_groups_and_nothing_else(): void {
+		$alpha   = $this->create_segment( 'Alpha' );
+		$beta    = $this->create_segment( 'Beta' );
+		$post_id = $this->create_post(
+			$this->gated_group( $alpha->id(), $this->paragraph( 'ALPHA-SECRET' ) )
+			. $this->gated_group( $beta->id(), $this->paragraph( 'BETA-SECRET' ) )
+		);
+
+		$this->assertSame( '', get_the_excerpt( $post_id ) );
+		$this->assertContains( $alpha->key(), $this->consulted() );
+		$this->assertContains( $beta->key(), $this->consulted() );
+
+		$this->set_reader( array( $alpha->key() => '1' ) );
+		$excerpt = get_the_excerpt( $post_id );
+		$this->assertStringContainsString( 'ALPHA-SECRET', $excerpt );
+		$this->assertStringNotContainsString( 'BETA-SECRET', $excerpt );
+
+		$this->set_reader(
+			array(
+				$alpha->key() => '1',
+				$beta->key()  => '1',
+			)
+		);
+		$excerpt = get_the_excerpt( $post_id );
+		$this->assertStringContainsString( 'ALPHA-SECRET', $excerpt );
+		$this->assertStringContainsString( 'BETA-SECRET', $excerpt );
+	}
+
+	/**
+	 * A nested `get_the_excerpt()` call for another post during the
+	 * computation does not confuse the pairing of priorities 9 and 11.
+	 */
+	public function test_nested_excerpt_calls_keep_their_own_values(): void {
+		$segment = $this->create_segment( 'Subscribers' );
+		$outer   = $this->create_post( $this->gated_group( $segment->id(), $this->paragraph( 'OUTER-SECRET' ) ) );
+		$inner   = $this->create_post( $this->gated_group( $segment->id(), $this->paragraph( 'INNER-SECRET' ) ) . $this->paragraph( 'INNER-PUBLIC' ) );
+
+		$nested = null;
+		$busy   = false;
+		$spy    = static function ( string $text ) use ( $inner, &$nested, &$busy ): string {
+			// The nested call fires this filter again; the flag stops re-entry.
+			if ( null === $nested && ! $busy ) {
+				$busy   = true;
+				$nested = get_the_excerpt( $inner );
+			}
+
+			return $text;
+		};
+		add_filter( 'wp_trim_excerpt', $spy );
+
+		try {
+			$excerpt = get_the_excerpt( $outer );
+		} finally {
+			remove_filter( 'wp_trim_excerpt', $spy );
+		}
+
+		$this->assertSame( '', $excerpt );
+		$this->assertIsString( $nested );
+		$this->assertStringContainsString( 'INNER-PUBLIC', $nested );
+		$this->assertStringNotContainsString( 'INNER-SECRET', $nested );
+		$this->assertStringNotContainsString( 'OUTER-SECRET', $nested );
 	}
 }

@@ -124,7 +124,7 @@ final class Membership_Controller {
 					'permission_callback' => array( $this, 'permission_check' ),
 					'args'                => array(
 						'segment' => array(
-							'description'       => __( 'Segment post ID (integer) or key (string). Numeric strings are treated as IDs.', 'content-gates' ),
+							'description'       => __( 'Segment post ID (integer) or key (string). A string of digits only is treated as an ID; anything else is a key.', 'content-gates' ),
 							'type'              => array( 'integer', 'string' ),
 							'required'          => true,
 							'minLength'         => 1,
@@ -308,7 +308,13 @@ final class Membership_Controller {
 	}
 
 	/**
-	 * Sanitize the `segment` argument: numeric means post ID, else a key.
+	 * Sanitize the `segment` argument: a string of digits means post ID,
+	 * else a key.
+	 *
+	 * The digit check is strict (`ctype_digit`), not `is_numeric`: `1e3`,
+	 * `12.5` and ` 12` are keys, so they fail with
+	 * `content_gates_invalid_segment` instead of being coerced to an ID
+	 * the caller did not name.
 	 *
 	 * @since 0.1.0
 	 *
@@ -320,7 +326,7 @@ final class Membership_Controller {
 			return $value;
 		}
 
-		if ( is_string( $value ) && is_numeric( $value ) ) {
+		if ( is_string( $value ) && ctype_digit( $value ) ) {
 			return (int) $value;
 		}
 
@@ -339,7 +345,11 @@ final class Membership_Controller {
 	/**
 	 * The response body shared by GET and a successful POST.
 	 *
-	 * @return array{contract: string, membership: array<string, string>, segments: list<array{id: int|null, key: string, name: string, active: bool}>}
+	 * `membership` is always a JSON object. PHP serializes an empty array
+	 * as `[]`, which would change the JSON type for clients, so an empty
+	 * membership is cast to an object.
+	 *
+	 * @return array{contract: string, membership: array<string, string>|\stdClass, segments: list<array{id: int|null, key: string, name: string, active: bool}>}
 	 */
 	private function state(): array {
 		$segments = array();
@@ -352,9 +362,11 @@ final class Membership_Controller {
 			);
 		}
 
+		$membership = $this->membership()->membership();
+
 		return array(
 			'contract'   => (string) constant( 'CONTENT_GATES_CONTRACT_VERSION' ),
-			'membership' => $this->membership()->membership(),
+			'membership' => array() === $membership ? new \stdClass() : $membership,
 			'segments'   => $segments,
 		);
 	}

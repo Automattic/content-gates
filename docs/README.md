@@ -55,9 +55,12 @@ add_action( 'content_gates_loaded', function () {
 #### `content_gates_finalize_variance`
 
 Fires once the consulted set is final for this response. On front-end
-requests this happens on `shutdown` (priority 0). On a REST request it
-happens on `rest_post_dispatch` (priority `PHP_INT_MAX`). The arguments are
-the values the response headers are built from, after the
+requests this happens on `shutdown` (priority 0). On a REST request that
+WordPress is serving it happens on `rest_pre_echo_response` (priority
+`PHP_INT_MAX`), after core has rendered every `_embed` resource. It does
+not fire for an internal `rest_do_request()` made during a page render:
+that page's own finalize covers those reads. The arguments are the values
+the response headers are built from, after the
 `content_gates_consulted_segments` filter has run. Use it for debug output
 or a custom edge signal. Do not use it to change membership: the request
 is already too late for writes.
@@ -66,13 +69,14 @@ is already too late for writes.
 | --- | --- | --- |
 | `$consulted` | `string[]` | Sorted, unique segment keys the render read. Empty when nothing was consulted. |
 | `$variant_key` | `array<string, string>` | Key => the reader's value, or `'none'` when the reader is not in that segment. Same keys as `$consulted`, in the same order. |
+| `$sent` | `bool` | Whether `X-Content-Gates-Vary` reached the response. `true` when nothing was consulted. `false` when the set is non-empty but output had already started, so the response carries no signal; the finalizer also raises a `WP_DEBUG` warning in that case. |
 
 Since 0.1.0.
 
 ```php
-add_action( 'content_gates_finalize_variance', function ( array $consulted, array $variant_key ) {
-	error_log( 'consulted: ' . implode( ',', $consulted ) );
-}, 10, 2 );
+add_action( 'content_gates_finalize_variance', function ( array $consulted, array $variant_key, bool $sent ) {
+	error_log( 'consulted: ' . implode( ',', $consulted ) . ( $sent ? '' : ' (header NOT sent)' ) );
+}, 10, 3 );
 ```
 
 #### `vip_vary_cache_did_send_headers`
@@ -103,9 +107,11 @@ add_action( 'vip_vary_cache_did_send_headers', function () { wp_safe_redirect( w
 
 The last chance to adjust the set of segments a response reports as
 consulted. The returned value is cast to strings, de-duplicated, and
-sorted before use. Adding a key is safe: the edge stores more variants
-than needed. Removing a key is dangerous: the edge may then serve one
-reader's page to another.
+sorted before use. Each key must match `[A-Za-z0-9_-]+`; any other value
+is dropped before it reaches the header, with a `WP_DEBUG` warning that
+names it. Adding a key is safe: the edge stores more variants than
+needed. Removing a key is dangerous: the edge may then serve one reader's
+page to another.
 
 | Argument | Type | Description |
 | --- | --- | --- |

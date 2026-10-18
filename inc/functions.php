@@ -25,6 +25,11 @@ if ( ! function_exists( 'content_gates_membership' ) ) {
 	/**
 	 * The booted membership layer, or a WP_Error before boot.
 	 *
+	 * Internal helper; not part of the provider contract. The contract is
+	 * the five unprefixed functions below. This one exists so test code
+	 * and diagnostics can reach raw adapter state (`membership()`) and the
+	 * consulted set without going through the recording reads.
+	 *
 	 * @since 0.1.0
 	 *
 	 * @return Membership|WP_Error Error code `content_gates_not_booted`.

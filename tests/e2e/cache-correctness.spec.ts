@@ -266,14 +266,15 @@ test.describe( 'cache correctness (edge simulator)', () => {
 		const snapshot = await stats();
 		const entries = snapshot.urls[ path ];
 		expect( entries ).toHaveLength( 2 );
-		// Both copies consulted S1 and nothing else from the registry. (The
-		// `crawler` key is filtered: Crawler_Markup reads it on every singular
-		// gated post, see the leak-surfaces finding.)
+		// Both copies consulted S1 and nothing else from the registry. Only
+		// the denied copy consulted `crawler`: it is read after a denial, and
+		// Crawler_Markup pre-evaluates the same decisions in wp_head.
 		expect(
 			entries.map( ( entry ) =>
 				entry.consulted.filter( ( key ) => key !== 'crawler' )
 			)
 		).toEqual( [ [ s1.key ], [ s1.key ] ] );
+		expect( entries[ 0 ].consulted ).not.toContain( 'crawler' );
 		expect( entries[ 1 ].consulted ).toContain( 'crawler' );
 		expect( snapshot.hits ).toBe( 2 );
 		expect( snapshot.misses ).toBe( 2 );

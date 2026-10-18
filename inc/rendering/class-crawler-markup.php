@@ -9,21 +9,31 @@ declare( strict_types=1 );
 
 namespace ContentGates\Rendering;
 
-use ContentGates\Membership\Membership;
-use ContentGates\Segments\Segment_Registry;
 use WP_Post;
 
 /**
  * Emits paywall structured data on the crawler variant.
  *
- * On a singular post whose content contains a gated Group, a reader in the
- * reserved `crawler` segment receives the Groups in full (see
- * `Block_Enforcer`) plus this JSON-LD in `wp_head`, which tells search
- * engines that the `.content-gates-paywall` parts are not free. See
+ * On a singular post, a reader in the reserved `crawler` segment who is
+ * denied a gated Group receives that Group in full, wrapped in
+ * `.content-gates-paywall` (see `Block_Enforcer`), plus this JSON-LD in
+ * `wp_head`, which tells search engines that the wrapped parts are not
+ * free. See
  * https://developers.google.com/search/docs/appearance/structured-data/paywalled-content.
  *
- * The `crawler` read is made only when the content has a gated Group, so
- * ungated pages do not vary on the crawler segment.
+ * `wp_head` runs before the content renders, so the render decisions are
+ * not known yet. This class pre-evaluates them: it parses the post content
+ * and runs every gated Group through `Block_Enforcer::decision()` the way
+ * the render will, skipping the subtree of a withheld Group (its inner
+ * gates are never consulted) and of an author-hidden Group (it never
+ * renders, so it cannot carry the wrapper). The JSON-LD is printed only
+ * when at least one decision is `crawler`, which is exactly when the page
+ * contains a `.content-gates-paywall` element. Membership is fixed for the
+ * request, so the render reaches the same decisions and records the same
+ * reads; the consulted set is unchanged in effect. The enforcer's rule
+ * stands: `crawler` is read only after a denial, so an entitled reader's
+ * page, and a crawler who is also a member, never vary on `crawler` and
+ * get no JSON-LD.
  *
  * @since 0.1.0
  */
@@ -32,9 +42,9 @@ final class Crawler_Markup {
 	/**
 	 * Constructor.
 	 *
-	 * @param Membership $membership Membership layer.
+	 * @param Block_Enforcer $enforcer The decision maker.
 	 */
-	public function __construct( private Membership $membership ) {}
+	public function __construct( private Block_Enforcer $enforcer ) {}
 
 	/**
 	 * Add hooks.
@@ -60,7 +70,7 @@ final class Crawler_Markup {
 			return;
 		}
 
-		if ( ! $this->membership->is_in( Segment_Registry::CRAWLER_KEY ) ) {
+		if ( ! $this->has_crawler_decision( parse_blocks( $post->post_content ), $post->ID ) ) {
 			return;
 		}
 
@@ -72,6 +82,61 @@ final class Crawler_Markup {
 		// The JSON is produced by wp_json_encode() with JSON_HEX_TAG and
 		// JSON_HEX_AMP, so it cannot close the script element or inject markup.
 		echo '<script type="application/ld+json">' . $json . '</script>' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	/**
+	 * Whether any gated Group in these blocks will render on the crawler
+	 * variant for this reader.
+	 *
+	 * Mirrors the render: a withheld Group's subtree is skipped, an allowed
+	 * Group's inner blocks are walked, and a hidden Group is skipped.
+	 *
+	 * @param array<int|string, mixed> $blocks  Parsed blocks.
+	 * @param int                      $post_id The post being rendered.
+	 */
+	private function has_crawler_decision( array $blocks, int $post_id ): bool {
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			if ( self::is_hidden( $block ) ) {
+				continue;
+			}
+
+			if ( Block_Enforcer::is_gated( $block ) ) {
+				$decision = $this->enforcer->decision( $block, $post_id );
+
+				if ( Block_Enforcer::CRAWLER === $decision ) {
+					return true;
+				}
+
+				if ( Block_Enforcer::WITHHOLD === $decision ) {
+					continue;
+				}
+			}
+
+			$inner = $block['innerBlocks'] ?? null;
+			if ( is_array( $inner ) && $this->has_crawler_decision( $inner, $post_id ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether the author hid a block (`metadata.blockVisibility` is `false`).
+	 *
+	 * Core's block visibility support renders such a block as `''`.
+	 *
+	 * @param array<string, mixed> $block Parsed block.
+	 */
+	private static function is_hidden( array $block ): bool {
+		$attrs    = $block['attrs'] ?? null;
+		$metadata = is_array( $attrs ) ? ( $attrs['metadata'] ?? null ) : null;
+
+		return is_array( $metadata ) && false === ( $metadata['blockVisibility'] ?? null );
 	}
 
 	/**

@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace ContentGates\Rendering;
 
 use ContentGates\Membership\Membership;
+use ContentGates\Segments\Segment_Registry;
 use WP_REST_Response;
 
 /**
@@ -21,10 +22,16 @@ use WP_REST_Response;
  * it at `shutdown`, after sending:
  *
  * - `X-Content-Gates-Vary: a, b` (sorted consulted keys; absent when empty)
- * - `X-Content-Gates-Key: a=1, b=none` (WP_DEBUG only)
+ * - `X-Content-Gates-Key: a=1, b=none` (WP_DEBUG only; absent when empty)
  *
- * REST responses never reach `template_redirect`; `finalize_rest()` sets
- * the same headers on the `WP_REST_Response` instead.
+ * REST responses never reach `template_redirect`. `finalize_rest()` puts
+ * the headers read so far on the `WP_REST_Response` at `rest_post_dispatch`,
+ * but the set is not final there: core renders `_embed` sub-requests only
+ * after it has sent the response object's headers. So when WordPress is
+ * serving the REST request, `finalize_rest_echo()` freezes the set at
+ * `rest_pre_echo_response`, the last filter before the first body byte,
+ * and sends the headers again with `header()`, which replaces the earlier
+ * values.
  *
  * @since 0.1.0
  */
@@ -76,6 +83,7 @@ final class Response_Finalizer {
 		}
 
 		add_filter( 'rest_post_dispatch', array( $this, 'finalize_rest' ), PHP_INT_MAX );
+		add_filter( 'rest_pre_echo_response', array( $this, 'finalize_rest_echo' ), PHP_INT_MAX );
 	}
 
 	/**
@@ -106,26 +114,23 @@ final class Response_Finalizer {
 		$this->finalized = true;
 
 		list( $consulted, $variant_key ) = $this->compute();
-
-		if ( array() !== $consulted ) {
-			Headers::send( self::VARY_HEADER, self::format_vary( $consulted ) );
-		}
-
-		if ( $this->is_debug() ) {
-			Headers::send( self::KEY_HEADER, self::format_key( $variant_key ) );
-		}
+		$sent                            = $this->send( $consulted, $variant_key );
+		$this->announce( $consulted, $variant_key, $sent );
 
 		$this->membership->check_cookie_size();
 		$this->release_buffer();
 	}
 
 	/**
-	 * Attach the variance signal to a REST response.
+	 * Put the signal read so far on a REST response object.
 	 *
-	 * Hooked to `rest_post_dispatch`. Marks the request finalized only when
-	 * WordPress is serving this REST request, so an internal
-	 * `rest_do_request()` during a page render does not steal the page's
-	 * own signal.
+	 * Hooked to `rest_post_dispatch`. Nothing is frozen and no hook fires:
+	 * the set may still grow (embedded sub-requests render after this
+	 * point), and an internal `rest_do_request()` during a page render must
+	 * not steal the page's own signal. Core sends these headers before the
+	 * body, so a HEAD request or a response served by other code still
+	 * carries what was known at dispatch; `finalize_rest_echo()` replaces
+	 * them with the final values when WordPress serves the request.
 	 *
 	 * @since 0.1.0
 	 *
@@ -133,31 +138,51 @@ final class Response_Finalizer {
 	 * @return mixed The same response.
 	 */
 	public function finalize_rest( mixed $response ): mixed {
-		if ( ! $response instanceof WP_REST_Response ) {
+		if ( ! $response instanceof WP_REST_Response || $this->finalized ) {
 			return $response;
 		}
 
-		$serving = ( $this->is_serving_rest )();
-		if ( $serving && $this->finalized ) {
-			return $response;
-		}
-
-		list( $consulted, $variant_key ) = $this->compute( $serving );
+		$consulted   = $this->membership->consulted();
+		$variant_key = $this->membership->variant_key( $consulted );
 
 		if ( array() !== $consulted ) {
 			$response->header( self::VARY_HEADER, self::format_vary( $consulted ) );
 		}
 
-		if ( $this->is_debug() ) {
+		if ( $this->is_debug() && array() !== $variant_key ) {
 			$response->header( self::KEY_HEADER, self::format_key( $variant_key ) );
 		}
 
-		if ( $serving ) {
-			$this->finalized = true;
-			$this->membership->check_cookie_size();
+		return $response;
+	}
+
+	/**
+	 * Freeze and send the signal for a REST request WordPress is serving.
+	 *
+	 * Hooked to `rest_pre_echo_response`, which core applies after
+	 * `response_to_data()` has rendered every embedded resource and before
+	 * it echoes the first body byte, so `header()` still works. Runs once;
+	 * the filter and action fire here, not at dispatch.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @param mixed $result Response data about to be echoed.
+	 * @return mixed The same data.
+	 */
+	public function finalize_rest_echo( mixed $result ): mixed {
+		if ( $this->finalized || ! ( $this->is_serving_rest )() ) {
+			return $result;
 		}
 
-		return $response;
+		$this->finalized = true;
+
+		list( $consulted, $variant_key ) = $this->compute();
+		$sent                            = $this->send( $consulted, $variant_key );
+		$this->announce( $consulted, $variant_key, $sent );
+
+		$this->membership->check_cookie_size();
+
+		return $result;
 	}
 
 	/**
@@ -170,23 +195,21 @@ final class Response_Finalizer {
 	}
 
 	/**
-	 * Freeze (optionally), filter and announce the consulted set.
+	 * Freeze, filter and validate the consulted set.
 	 *
-	 * @param bool $freeze Whether to freeze the consulted set.
 	 * @return array{0: string[], 1: array<string, string>} Consulted keys and variant key.
 	 */
-	private function compute( bool $freeze = true ): array {
+	private function compute(): array {
 		$set = $this->membership->consulted_set();
-		if ( $freeze ) {
-			$set->freeze();
-		}
+		$set->freeze();
 
 		/**
 		 * Filters the segments a response reports as consulted.
 		 *
 		 * Last chance to adjust the set the edge keys this response on.
 		 * Adding a key is safe; removing one can serve one reader's page
-		 * to another.
+		 * to another. Keys must match `[A-Za-z0-9_-]+`; others are dropped
+		 * with a warning under WP_DEBUG.
 		 *
 		 * @since 0.1.0
 		 *
@@ -194,10 +217,82 @@ final class Response_Finalizer {
 		 */
 		$consulted = apply_filters( 'content_gates_consulted_segments', $set->keys() );
 		$consulted = array_values( array_unique( array_map( 'strval', (array) $consulted ) ) );
+		$consulted = $this->drop_invalid( $consulted );
 		sort( $consulted, SORT_STRING );
 
-		$variant_key = $this->membership->variant_key( $consulted );
+		return array( $consulted, $this->membership->variant_key( $consulted ) );
+	}
 
+	/**
+	 * Remove keys that cannot travel in a header value.
+	 *
+	 * @param string[] $consulted Filtered keys.
+	 * @return string[] Valid keys only.
+	 */
+	private function drop_invalid( array $consulted ): array {
+		$invalid = array_filter( $consulted, static fn( string $key ): bool => ! Segment_Registry::is_valid_key( $key ) );
+		if ( array() === $invalid ) {
+			return $consulted;
+		}
+
+		wp_trigger_error(
+			__METHOD__,
+			sprintf(
+				'The content_gates_consulted_segments filter returned keys that are not valid segment keys and were dropped: %s. Keys must match %s.',
+				implode( ', ', array_map( static fn( string $key ): string => '"' . addcslashes( $key, "\"\\\0..\37\177" ) . '"', $invalid ) ),
+				Segment_Registry::KEY_PATTERN
+			),
+			E_USER_WARNING
+		);
+
+		return array_values( array_diff( $consulted, $invalid ) );
+	}
+
+	/**
+	 * Send the signal headers with `header()`.
+	 *
+	 * Warns under WP_DEBUG when the consulted set is non-empty but output
+	 * already started: the response then carries no signal and the edge may
+	 * store it for every reader.
+	 *
+	 * @param string[]              $consulted   Sorted keys.
+	 * @param array<string, string> $variant_key Key => value or 'none'.
+	 * @return bool Whether the Vary header was sent, or true when there was nothing to send.
+	 */
+	private function send( array $consulted, array $variant_key ): bool {
+		$sent = true;
+
+		if ( array() !== $consulted ) {
+			$sent = Headers::send( self::VARY_HEADER, self::format_vary( $consulted ) );
+		}
+
+		if ( $this->is_debug() && array() !== $variant_key ) {
+			Headers::send( self::KEY_HEADER, self::format_key( $variant_key ) );
+		}
+
+		if ( ! $sent ) {
+			wp_trigger_error(
+				__METHOD__,
+				sprintf(
+					'Content Gates could not send %s because output already started (consulted: %s). The response may be cached for every reader.',
+					self::VARY_HEADER,
+					self::format_vary( $consulted )
+				),
+				E_USER_WARNING
+			);
+		}
+
+		return $sent;
+	}
+
+	/**
+	 * Announce the final signal.
+	 *
+	 * @param string[]              $consulted   Sorted keys.
+	 * @param array<string, string> $variant_key Key => value or 'none'.
+	 * @param bool                  $sent        Whether the Vary header reached the response.
+	 */
+	private function announce( array $consulted, array $variant_key, bool $sent ): void {
 		/**
 		 * Fires once the consulted set is final for this response.
 		 *
@@ -205,10 +300,10 @@ final class Response_Finalizer {
 		 *
 		 * @param string[]              $consulted   Sorted segment keys.
 		 * @param array<string, string> $variant_key Key => value or 'none'.
+		 * @param bool                  $sent        Whether `X-Content-Gates-Vary` reached the response. False
+		 *                                           when the set is non-empty but output had already started.
 		 */
-		do_action( 'content_gates_finalize_variance', $consulted, $variant_key );
-
-		return array( $consulted, $variant_key );
+		do_action( 'content_gates_finalize_variance', $consulted, $variant_key, $sent );
 	}
 
 	/**

@@ -191,6 +191,11 @@ They exist so a failure is observable without re-instrumenting:
 
 Each of these has bitten. Don't rediscover them.
 
+- **Segments accumulate in the tests database.** Nothing can delete a
+  `cg_segment`, and each e2e run creates about twenty. Every one is
+  registered as a cache group on each request and listed in the editor
+  dropdown. A PHPUnit run (`npm run test:php`) wipes the database and is
+  the only reset.
 - **PHPUnit leaves the tests DB on a nonexistent theme.** The WordPress test
   library's install step resets the database and sets `stylesheet` to
   `default`, so every page on :8889 returns 500 for logged-in users until

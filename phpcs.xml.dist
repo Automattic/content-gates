@@ -5,6 +5,7 @@
 	<file>content-gates.php</file>
 	<file>inc</file>
 	<file>tests/unit</file>
+	<file>tests/e2e/fixtures</file>
 
 	<exclude-pattern>*/vendor/*</exclude-pattern>
 	<exclude-pattern>*/node_modules/*</exclude-pattern>

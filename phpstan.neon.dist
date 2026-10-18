@@ -4,6 +4,7 @@ parameters:
 		- content-gates.php
 		- inc
 		- tests/unit
+		- tests/e2e/fixtures
 	scanFiles:
 		- vendor/php-stubs/wordpress-tests-stubs/wordpress-tests-stubs.php
 	treatPhpDocTypesAsCertain: false

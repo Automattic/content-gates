@@ -287,12 +287,35 @@ final class Test_Membership_Rest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * GET without any membership reports an empty object.
+	 * GET without any membership reports an empty JSON object, not `[]`:
+	 * the contract documents `membership: { key: value }` and clients must
+	 * not see the JSON type change for an anonymous reader.
 	 */
 	public function test_get_without_membership_is_empty(): void {
 		$data = $this->data( $this->dispatch( 'GET' ) );
 
-		$this->assertSame( array(), $data['membership'] );
+		$this->assertInstanceOf( \stdClass::class, $data['membership'] );
+		$this->assertSame( array(), (array) $data['membership'] );
+		$this->assertStringContainsString( '"membership":{}', (string) wp_json_encode( $data ) );
+	}
+
+	/**
+	 * A successful POST that ends with no membership (remove the last key)
+	 * also reports an empty JSON object.
+	 */
+	public function test_post_remove_last_reports_empty_object(): void {
+		$this->allow_writes();
+		$this->arrive_with( 'vc-v1__' . self::CODE_KEY . '_--_1' );
+
+		$response = $this->dispatch(
+			'POST',
+			array(
+				'segment' => self::CODE_KEY,
+				'action'  => 'remove',
+			)
+		);
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertStringContainsString( '"membership":{}', (string) wp_json_encode( $response->get_data() ) );
 	}
 
 	/**
@@ -461,7 +484,8 @@ final class Test_Membership_Rest extends WP_UnitTestCase {
 			)
 		);
 
-		$this->assertSame( array(), $data['membership'] );
+		$this->assertInstanceOf( \stdClass::class, $data['membership'], 'Empty membership is a JSON object.' );
+		$this->assertSame( array(), (array) $data['membership'] );
 		$this->assertSame( '', $data['cookie']['value'] );
 
 		$cookie = $this->adapter->pending_cookie();
@@ -488,6 +512,38 @@ final class Test_Membership_Rest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'POST', array( 'segment' => 999999 ) );
 		$this->assertSame( 400, $response->get_status() );
 		$this->assertSame( 'content_gates_invalid_segment', $this->data( $response )['code'] );
+	}
+
+	/**
+	 * Numeric-looking strings that are not all digits are keys, and
+	 * unknown keys are refused. `is_numeric` would have coerced them to
+	 * an ID the caller never named.
+	 *
+	 * @dataProvider numeric_looking_keys
+	 *
+	 * @param string $segment Segment argument.
+	 */
+	public function test_post_numeric_looking_key_is_not_an_id( string $segment ): void {
+		$this->allow_writes();
+
+		$response = $this->dispatch( 'POST', array( 'segment' => $segment ) );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'content_gates_invalid_segment', $this->data( $response )['code'] );
+		$this->assertNull( $this->adapter->pending_cookie() );
+	}
+
+	/**
+	 * Strings `is_numeric()` accepts that must not become IDs.
+	 *
+	 * @return array<string, array{string}>
+	 */
+	public function numeric_looking_keys(): array {
+		return array(
+			'exponent'           => array( '1e3' ),
+			'float'              => array( '12.5' ),
+			'leading whitespace' => array( ' 12' ),
+		);
 	}
 
 	/**
@@ -593,11 +649,14 @@ final class Test_Membership_Rest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Segment reference sanitization.
+	 * Segment reference sanitization: only a string of digits is an ID.
 	 */
 	public function test_sanitize_segment_ref(): void {
 		$this->assertSame( 12, Membership_Controller::sanitize_segment_ref( 12 ) );
 		$this->assertSame( 12, Membership_Controller::sanitize_segment_ref( '12' ) );
+		$this->assertSame( '1e3', Membership_Controller::sanitize_segment_ref( '1e3' ), 'Exponent notation is numeric but not an ID.' );
+		$this->assertSame( '12.5', Membership_Controller::sanitize_segment_ref( '12.5' ), 'A float string is not an ID.' );
+		$this->assertSame( '12', Membership_Controller::sanitize_segment_ref( ' 12' ), 'Leading whitespace means key, which sanitize_text_field then trims; it is never coerced to an ID.' );
 		$this->assertSame( 'newsletter', Membership_Controller::sanitize_segment_ref( 'newsletter' ) );
 		$this->assertSame( 'news', Membership_Controller::sanitize_segment_ref( "<b>news</b>\n" ) );
 		$this->assertSame( '', Membership_Controller::sanitize_segment_ref( '<script>alert(1)</script>' ), 'Script elements are stripped whole.' );

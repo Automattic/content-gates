@@ -18,12 +18,12 @@ construction time. The boot order is the order below.
 | `Membership\Local_Cookie_Adapter` or `Membership\Vary_Cache_Adapter` | `inc/membership/` | Local: `init` 10, `send_headers` `PHP_INT_MAX`. VIP: `send_headers` `PHP_INT_MAX - 1`. | The only door to the segmentation cookie. Chosen at boot by `class_exists( Vary_Cache )`. |
 | `Membership\Consulted_Set` | `inc/membership/class-consulted-set.php` | none | Records every segment key a response read. Freezable. |
 | `Membership\Membership` | `inc/membership/class-membership.php` | `init` 1, `send_headers` `PHP_INT_MAX - 1` | The one read and write API. Validates, records reads, marks the request too late. |
-| `Rendering\Response_Finalizer` | `inc/rendering/class-response-finalizer.php` | `template_redirect` `PHP_INT_MIN`, `shutdown` 0, `rest_post_dispatch` `PHP_INT_MAX` | Buffers the body, computes the consulted set after render, sends the signal headers. |
+| `Rendering\Response_Finalizer` | `inc/rendering/class-response-finalizer.php` | `template_redirect` `PHP_INT_MIN`, `shutdown` 0, `rest_post_dispatch` `PHP_INT_MAX`, `rest_pre_echo_response` `PHP_INT_MAX` | Buffers the body, computes the consulted set after render, sends the signal headers. |
 | `Rendering\Headers` | `inc/rendering/class-headers.php` | none | `header()` wrapper that records what it sent so tests can read it. |
 | `Rendering\Block_Enforcer` | `inc/rendering/class-block-enforcer.php` | `register_block_type_args`, `pre_render_block` 10, `render_block` 10 | Registers `contentGatesSegmentId` on `core/group` and decides allow, withhold, or crawler per Group. |
 | `Rendering\Block_Stripper` | `inc/rendering/class-block-stripper.php` | none | Removes withheld Groups from serialized block content, for paths that never render the Group. |
-| `Rendering\Excerpt_Guard` | `inc/rendering/class-excerpt-guard.php` | `get_the_excerpt` 9 | Builds auto-excerpts from stripped content. |
-| `Rendering\Crawler_Markup` | `inc/rendering/class-crawler-markup.php` | `wp_head` 10 | JSON-LD paywall markup on the crawler variant. |
+| `Rendering\Excerpt_Guard` | `inc/rendering/class-excerpt-guard.php` | `get_the_excerpt` 9 and 11 | Builds auto-excerpts from stripped content and owns the result for gated posts. |
+| `Rendering\Crawler_Markup` | `inc/rendering/class-crawler-markup.php` | `wp_head` 10 | JSON-LD paywall markup when a gated Group will render on the crawler variant (pre-evaluates the enforcer's decisions). |
 | `Editor\Editor_Assets` + `assets/editor.js` | `inc/editor/class-editor-assets.php` | `enqueue_block_editor_assets` | The Segment dropdown in the Group block inspector. Plain script, no build. |
 | `REST\Membership_Controller` | `inc/rest/class-membership-controller.php` | `rest_api_init`, `rest_request_after_callbacks` | `content-gates/v1/membership`. |
 | Public functions | `inc/functions.php` | none | The five contract functions plus `content_gates_membership()`. |
@@ -74,10 +74,14 @@ Step by step on origin:
    with `contentGatesSegmentId`, calls `Membership::is_in()`, and returns
    `''` for a withheld Group. Each read lands in the `Consulted_Set`.
 9. `shutdown` 0: `Response_Finalizer::finalize()` freezes the set, applies
-   `content_gates_consulted_segments`, fires
-   `content_gates_finalize_variance`, sends `X-Content-Gates-Vary` (and
-   `X-Content-Gates-Key` under `WP_DEBUG`), checks cookie size, and
-   flushes the buffer.
+   `content_gates_consulted_segments` (keys outside `[A-Za-z0-9_-]+` are
+   dropped with a `WP_DEBUG` warning), sends `X-Content-Gates-Vary` (and
+   `X-Content-Gates-Key` under `WP_DEBUG`; both absent when nothing was
+   consulted), fires `content_gates_finalize_variance` with whether the
+   header could be sent, checks cookie size, and flushes the buffer. If
+   output already started (some code flushed or closed the buffer early)
+   the header cannot be sent; the finalizer warns under `WP_DEBUG` because
+   the edge may then store that response for every reader.
 
 ### Cache HIT
 
@@ -97,17 +101,44 @@ POST /wp-json/content-gates/v1/membership  {"segment":"subscriber"}
   callback: Membership::assign(); adapter->flush()  -> Set-Cookie on this response
   rest_request_after_callbacks: Cache-Control: no-store..., Vary: Cookie
   rest_post_dispatch MAX: Response_Finalizer::finalize_rest()  (no reads, so no X-Content-Gates-Vary)
+  rest_pre_echo_response MAX: Response_Finalizer::finalize_rest_echo()  freezes, fires the action, sends headers
 ```
 
 `send_headers` never fires on a REST request, so the controller flushes
 the adapter itself. After the flush the request is too late for another
-write. The finalizer still runs on `rest_post_dispatch` and would attach
-`X-Content-Gates-Vary` to any REST response whose handler consulted a
-segment, for example `GET /wp/v2/posts/<id>` whose `content.rendered` ran
-the block enforcer. The finalizer marks the request finalized only when
-WordPress is serving the REST request (`wp_is_serving_rest_request()`),
-so an internal `rest_do_request()` during a page render does not steal the
-page's own signal.
+write.
+
+### REST reads and `_embed`
+
+Any REST response whose handler consulted a segment carries
+`X-Content-Gates-Vary`, for example `GET /wp/v2/posts/<id>` whose
+`content.rendered` ran the block enforcer. The finalizer hooks two points
+because of the order inside `WP_REST_Server::serve_request()`:
+
+```text
+dispatch
+rest_post_dispatch MAX: finalize_rest()  puts the keys read so far on the WP_REST_Response; no freeze, no hooks
+send_headers()                           core sends the response object's headers
+response_to_data()                       renders every `_embed` link through rest_do_request(): more reads
+rest_pre_echo_response MAX: finalize_rest_echo()  freeze, filter, action, header() replaces the earlier values
+echo                                     first body byte; headers are fixed from here
+```
+
+`rest_post_dispatch` is too early: embedded resources render after core
+has already sent the response object's headers, so a signal frozen there
+misses every Group inside an embedded post. `rest_pre_echo_response` is
+the last filter before output, and `header()` with replace still works
+there. That is where the set is frozen and the filter and action run,
+once. The dispatch-time headers remain useful for `HEAD` requests and
+for responses that other code serves through `rest_pre_serve_request`,
+where the echo hook never fires.
+
+The echo hook runs only when WordPress is serving the REST request
+(`wp_is_serving_rest_request()`). An internal `rest_do_request()` during
+a page render only gets the dispatch-time headers on its response object:
+no freeze, no filter, no action, so it does not steal the page's own
+signal. `Test_Response_Finalizer::test_rest_embed_reads_are_reported`
+covers the embed case.
 
 ### Feed
 
@@ -154,7 +185,7 @@ on.
 | Header | When | Format |
 | --- | --- | --- |
 | `X-Content-Gates-Vary` | Consulted set is non-empty. | Sorted keys, comma and space separated: `newsletter, subscriber`. |
-| `X-Content-Gates-Key` | `WP_DEBUG` only. | `newsletter=1, subscriber=none`. |
+| `X-Content-Gates-Key` | `WP_DEBUG` only, and only when the consulted set is non-empty. | `newsletter=1, subscriber=none`. |
 | `X-Content-Gates-Simulation` | Local adapter only, every response it handles. | `local`. |
 
 An empty consulted set sends no `X-Content-Gates-Vary` header: one copy
@@ -245,6 +276,21 @@ closes the path where a `WP_Block` is rendered without `pre_render_block`
 and applies the crawler wrapper when another filter pre-rendered the
 Group.
 
+`Crawler_Markup` relies on the same property. `wp_head` runs before the
+content renders, so on a singular post whose content mentions the
+attribute it parses `post_content` and runs every gated Group through
+`decision()` the way the render will: a withheld Group's subtree is
+skipped (inner gates are not consulted), an allowed Group's inner blocks
+are walked, and an author-hidden Group is skipped because it never
+renders. The JSON-LD is printed only when at least one decision is
+`crawler`, which is exactly when the page contains a
+`.content-gates-paywall` element. The reads it records are the ones the
+render records, so the consulted set is unchanged in effect: an entitled
+reader's page, and a crawler who is also a member, never read `crawler`
+and get no JSON-LD (PHPUnit
+`Test_Crawler_Markup::test_entitled_reader_does_not_consult_crawler`,
+`test_entitled_crawler_gets_no_json_ld`, `test_nested_gates_mirror_the_render`).
+
 ## Excerpt guard and why core leaks
 
 Core's `wp_trim_excerpt()` builds an auto-excerpt from the content through
@@ -255,13 +301,25 @@ so `pre_render_block` never fires for it and the gated text lands in the
 excerpt. PHPUnit `Test_Excerpt_Guard::test_core_excerpt_leaks_without_guard`
 proves the leak exists in core and is the reason the guard exists.
 
-`Excerpt_Guard` hooks `get_the_excerpt` at priority 9, one step before
-core's `wp_trim_excerpt` at 10. When the incoming text is empty (no manual
-excerpt) and the post content mentions the attribute, it clones the post,
-replaces `post_content` with `Block_Stripper::strip()` output, and returns
-`wp_trim_excerpt( '', $clone )`. Core's own callback then receives
-non-empty text and returns it unchanged. Manual excerpts are never
-touched. Posts without the attribute are not parsed.
+`Excerpt_Guard` hooks `get_the_excerpt` twice, around core's
+`wp_trim_excerpt` at 10. At priority 9, when the incoming text is empty
+(no manual excerpt) and the post content mentions the attribute, it clones
+the post, replaces `post_content` with `Block_Stripper::strip()` output,
+computes `wp_trim_excerpt( '', $clone )`, remembers that value for the
+post, and returns it. At priority 11 it returns the remembered value and
+forgets it, so whatever core did at 10 is discarded. The second callback
+exists because core treats `''` as "no excerpt yet": when the post is
+nothing but gated Groups, the stripped clone trims to `''` and core at 10
+would regenerate an excerpt from the original post, bringing the gated
+text back (PHPUnit
+`Test_Excerpt_Guard::test_only_gated_content_yields_empty_excerpt_for_non_member`,
+`test_two_gated_groups_and_nothing_else`). In that case core's
+regeneration still runs and its output passes through the in-process
+`wp_trim_excerpt` filter before priority 11 drops it; it never reaches the
+response. Remembered values are keyed by post ID and stacked, so nested
+`get_the_excerpt()` calls pair up correctly
+(`test_nested_excerpt_calls_keep_their_own_values`). Manual excerpts are
+never touched. Posts without the attribute are not parsed.
 
 `Block_Stripper::strip()` parses the content, drops every Group whose
 decision is withhold (the whole subtree, so inner gates are not
@@ -341,18 +399,38 @@ into both wp-env sites as an mu-plugin (`mappings` in `.wp-env.json` and
   `content_gates_test_remove=<ref>` on `init` 20, calls the public
   functions, and redirects back with `?content_gates_test=<ok|code>` from
   `vip_vary_cache_did_send_headers` (the VIP README flow),
-- prints a fixed "Content Gates test provider (never deploy)" box in
-  `wp_footer` with a Join/Leave button per active segment when
-  `wp_get_environment_type()` is `local`. Both wp-env configs set
-  `WP_ENVIRONMENT_TYPE` to `local`.
+- prints a "Content Gates test provider (never deploy)" box in
+  `wp_footer` with a Join/Leave button per active segment, only on a
+  request that carries `?content_gates_demo=1`, and sends
+  `Cache-Control: no-store` (the full `wp_get_nocache_headers()` set,
+  through the `wp_headers` filter) on that response. Without the query
+  arg the footer outputs nothing and reads nothing.
 
-It has no nonce, so `curl` and Playwright can post to it. It grants
-membership to anyone who asks. It must never be deployed. It stays out of
-PHPUnit by returning early when `tests_add_filter()` exists.
+The box reads raw membership through `content_gates_membership()`, which
+is not recorded in the consulted set. That is deliberate (the demo must
+not add a segment to every page's variant key), but it also means the
+box must never be on a cacheable page: under the edge simulator the
+page would be stored keyed only on the consulted set and show the
+warming reader's membership to everyone. Tying the box to an explicitly
+uncacheable request resolves both.
 
-To see the demo: start the dev site (`npm run env start`, `:8888`),
-create a segment at Settings > Content Gates, wrap a paragraph in a Group
-and pick the segment, publish, then view the post logged out. The footer
-box shows current membership and Join/Leave buttons. Put the edge
-simulator in front (`:8890` as above) to watch HIT/MISS and the variant
-key change as you join and leave.
+Guards: the file refuses to load unless `WP_ENVIRONMENT_TYPE` is `local`
+(both wp-env configs set it; see `.wp-env.json`), so the mapping into the
+dev site is exposure by design, not by accident. It has no nonce, so
+`curl` and Playwright can post to it. It grants membership to anyone who
+asks. It must never be deployed. It stays out of PHPUnit by returning
+early when `tests_add_filter()` exists. The fixture is covered by PHPCS
+and PHPStan (`tests/e2e/fixtures` is in both configs).
+
+To see the demo: start the dev site (`npm run env start`), create a
+segment at Settings > Content Gates, wrap a paragraph in a Group and pick
+the segment, publish, then view the post logged out with the demo arg,
+for example `http://localhost:8888/?content_gates_demo=1` or
+`http://localhost:8888/my-post/?content_gates_demo=1`. The dev site port
+is `8888` per `.wp-env.json`, but `autoPort` is on, so wp-env picks
+another port when `8888` is busy; `npm run doctor` prints the actual
+port. The footer box shows current membership and Join/Leave buttons;
+the Join/Leave POST redirects back to the same URL, demo arg included.
+Put the edge simulator in front (`:8890` as above) and view pages
+*without* the demo arg to watch HIT/MISS and the variant key change as
+you join and leave; a demo-arg page is `no-store` and never a HIT.

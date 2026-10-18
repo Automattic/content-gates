@@ -15,8 +15,22 @@
  *    URL once the cookie is written, with `?content_gates_test=<code>`
  *    (`ok` or the WP_Error code). This is the flow from VIP's cache README.
  *
- * On local sites it also prints a small demo box in the footer with a
- * Join/Leave form per active segment.
+ * Safety guards:
+ *
+ * - The file refuses to load unless `WP_ENVIRONMENT_TYPE` is `local`
+ *   (`wp_get_environment_type()`). Both wp-env configs set it. Anywhere
+ *   else the file is inert, so an accidental deploy grants nothing.
+ * - It also stays out of PHPUnit (see below).
+ *
+ * Demo box: on a request that carries `?content_gates_demo=1` it prints a
+ * small box in `wp_footer` with the reader's membership and a Join/Leave
+ * form per active segment, and marks that response uncacheable
+ * (`Cache-Control: no-store`). The box reads raw membership that is not
+ * recorded in the consulted set, so it must never appear on a cacheable
+ * page: under the edge simulator such a page is stored keyed only on the
+ * consulted set and would show the warming reader's membership to
+ * everyone. Without the query arg the footer outputs nothing and reads
+ * nothing.
  *
  * @package ContentGates
  */
@@ -29,6 +43,14 @@ const SEGMENT_KEY  = 'newsletter';
 const ASSIGN_FIELD = 'content_gates_test_assign';
 const REMOVE_FIELD = 'content_gates_test_remove';
 const RESULT_PARAM = 'content_gates_test';
+const DEMO_PARAM   = 'content_gates_demo';
+
+// Never-deploy guard: this provider grants membership to anyone. It only
+// loads where WP_ENVIRONMENT_TYPE is `local`, which both wp-env configs
+// set (.wp-env.json and .wp-env.tests.json). Everywhere else it is inert.
+if ( 'local' !== wp_get_environment_type() ) {
+	return;
+}
 
 // The WordPress test library also loads mu-plugins. PHPUnit must see the
 // plugin's defaults (no provider, no extra segments), so stay out of it.
@@ -55,25 +77,29 @@ add_filter( 'content_gates_rest_membership_permission', '__return_true' );
  * Writing before the parse would let the parse clobber a removal.
  */
 add_action( 'init', __NAMESPACE__ . '\\handle_post', 20 );
+add_filter( 'wp_headers', __NAMESPACE__ . '\\no_cache_demo_headers' );
 add_action( 'wp_footer', __NAMESPACE__ . '\\render_demo_box' );
 
 /**
  * Handle a membership form POST and arrange the redirect.
  */
 function handle_post(): void {
-	if ( ! isset( $_SERVER['REQUEST_METHOD'] ) || 'POST' !== $_SERVER['REQUEST_METHOD'] ) {
+	if ( ! isset( $_SERVER['REQUEST_METHOD'] ) || 'POST' !== sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) ) {
 		return;
 	}
 
-	// phpcs:disable WordPress.Security.NonceVerification.Missing -- Test-only fixture: no nonce, so curl and Playwright can POST without fetching a token first. Never deploy.
-	if ( isset( $_POST[ ASSIGN_FIELD ] ) ) {
-		$result = assign_reader_to_segment( sanitize_ref( sanitize_text_field( wp_unslash( $_POST[ ASSIGN_FIELD ] ) ) ) );
-	} elseif ( isset( $_POST[ REMOVE_FIELD ] ) ) {
-		$result = remove_reader_from_segment( sanitize_ref( sanitize_text_field( wp_unslash( $_POST[ REMOVE_FIELD ] ) ) ) );
+	// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Test-only fixture by design: no nonce, so curl and Playwright can POST without fetching a token first. Loads only where WP_ENVIRONMENT_TYPE is local. Never deploy.
+	$assign = isset( $_POST[ ASSIGN_FIELD ] ) ? sanitize_text_field( wp_unslash( $_POST[ ASSIGN_FIELD ] ) ) : null;
+	// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Test-only fixture by design: see above.
+	$remove = isset( $_POST[ REMOVE_FIELD ] ) ? sanitize_text_field( wp_unslash( $_POST[ REMOVE_FIELD ] ) ) : null;
+
+	if ( null !== $assign ) {
+		$result = assign_reader_to_segment( sanitize_ref( $assign ) );
+	} elseif ( null !== $remove ) {
+		$result = remove_reader_from_segment( sanitize_ref( $remove ) );
 	} else {
 		return;
 	}
-	// phpcs:enable
 
 	$code     = is_wp_error( $result ) ? (string) $result->get_error_code() : 'ok';
 	$redirect = static function () use ( $code ): void {
@@ -109,18 +135,46 @@ function redirect_back( string $code ): void {
 /**
  * Turn a sanitized POST field into a segment reference.
  *
+ * Mirrors `Membership_Controller::sanitize_segment_ref()`: only a string
+ * of digits is a post ID; `1e3`, `12.5` and ` 12` are keys.
+ *
  * @param string $raw Sanitized field value.
- * @return int|string Post ID when numeric, else the key.
+ * @return int|string Post ID when all digits, else the key.
  */
 function sanitize_ref( string $raw ): int|string {
-	return is_numeric( $raw ) ? (int) $raw : $raw;
+	return ctype_digit( $raw ) ? (int) $raw : $raw;
 }
 
 /**
- * Print a Join/Leave form per active segment on local sites.
+ * Whether the request asked for the demo box with `?content_gates_demo=1`.
+ */
+function is_demo_request(): bool {
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display switch; the response is marked uncacheable.
+	return isset( $_GET[ DEMO_PARAM ] ) && '1' === sanitize_text_field( wp_unslash( $_GET[ DEMO_PARAM ] ) );
+}
+
+/**
+ * Filter callback for `wp_headers`: make a demo response uncacheable.
+ *
+ * The demo box shows raw, unrecorded membership, so the page it is on
+ * must never be stored by any cache.
+ *
+ * @param array<string, string> $headers Headers WordPress is about to send.
+ * @return array<string, string>
+ */
+function no_cache_demo_headers( array $headers ): array {
+	if ( ! is_demo_request() ) {
+		return $headers;
+	}
+
+	return array_merge( $headers, wp_get_nocache_headers() );
+}
+
+/**
+ * Print a Join/Leave form per active segment, only on a demo request.
  */
 function render_demo_box(): void {
-	if ( 'local' !== wp_get_environment_type() ) {
+	if ( ! is_demo_request() ) {
 		return;
 	}
 
@@ -130,6 +184,7 @@ function render_demo_box(): void {
 	}
 
 	// membership() is raw adapter state: this box must not record reads.
+	// That is why the box is restricted to uncacheable demo requests.
 	$current = $membership->membership();
 	$action  = remove_query_arg( RESULT_PARAM );
 

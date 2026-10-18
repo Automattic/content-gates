@@ -163,10 +163,12 @@ test.describe( 'leak surfaces', () => {
 		expectLocalSimulation( response, 'member page' );
 
 		const headers = response.headers();
-		// Finding: `crawler` is also listed here because Crawler_Markup reads
-		// it on wp_head for every singular gated post, entitled or not.
-		expect( tokens( headers[ VARY_HEADER ] ) ).toContain( segment.key );
-		expect( keyMap( headers[ KEY_HEADER ] )[ segment.key ] ).toBe( '1' );
+		// No denial, so `crawler` is never read: the member page varies on
+		// the segment alone (Crawler_Markup mirrors the render decisions).
+		expect( tokens( headers[ VARY_HEADER ] ) ).toEqual( [ segment.key ] );
+		expect( keyMap( headers[ KEY_HEADER ] ) ).toEqual( {
+			[ segment.key ]: '1',
+		} );
 
 		// REST content.rendered for the member carries the gated bytes too.
 		const rest = await readerGet(
@@ -424,8 +426,8 @@ test.describe( 'leak surfaces', () => {
 			[ inner.key ]: 'none',
 		} );
 
-		// Reader in both: everything shown; both gates consulted (crawler is
-		// listed too, see the finding in the member test above).
+		// Reader in both: everything shown; both gates consulted and nothing
+		// denied, so `crawler` is not read.
 		const both = await reader( baseURL as string, {
 			[ outer.key ]: '1',
 			[ inner.key ]: '1',
@@ -434,6 +436,7 @@ test.describe( 'leak surfaces', () => {
 		expect( asBoth.body ).toContain( OUTER );
 		expect( asBoth.body ).toContain( INNER );
 		const bothVary = tokens( asBoth.response.headers()[ VARY_HEADER ] );
+		expect( bothVary ).not.toContain( 'crawler' );
 		expect( bothVary ).toContain( outer.key );
 		expect( bothVary ).toContain( inner.key );
 

@@ -32,6 +32,15 @@ use WP_Error;
  * - `register_group()` keeps a value that was already parsed. Real
  *   `Vary_Cache` resets it to ''. Registration normally runs before
  *   parsing, so the two only differ for late registrations.
+ * - Reads membership from the `X-VIP-Go-Segmentation` request header
+ *   (`HTTP_X_VIP_GO_SEGMENTATION`) before the cookie. Real `Vary_Cache`
+ *   never reads that header outside its encrypted mode. Locally any
+ *   client can send it, so it is a forgery vector equal to the cookie
+ *   itself: a local site must not trust membership for authorization.
+ * - Passes the raw header or cookie value through `sanitize_text_field()`
+ *   before parsing. Real `Vary_Cache` parses the raw value. Valid tokens
+ *   contain only `[A-Za-z0-9_-]`, so the two agree on every value the
+ *   parser would accept.
  *
  * @since 0.1.0
  */
