@@ -17,10 +17,6 @@ Product decisions, discovery evidence, and specification lives in `spec/`.
 
 ## Layout, setup, and environment
 
-Support floor (assumed until the spec says otherwise): WordPress 6.6+,
-PHP 8.1+, Node 20+ (`.nvmrc` pins 24). wp-env runs PHP 8.3 and latest
-WordPress core.
-
 Tooling, all pinned in `composer.json` / `package.json`:
 
 - PHPCS with `WordPress-Extra`, `WordPress-Docs`, and `WordPress-VIP-Go`
@@ -35,14 +31,13 @@ Tooling, all pinned in `composer.json` / `package.json`:
   (`playwright.config.ts`).
 
 ```bash
+npm run build		  # build client-side assets (none yet)
 npm run lint          # lint:php + analyze:php + lint:js
 npm run lint:php      # composer lint   (PHPCS)
 npm run analyze:php   # composer analyze (PHPStan)
 npm run lint:js       # wp-scripts lint-js
 composer lint:fix     # PHPCBF
 ```
-
-No build step exists yet; there is no client-side code. Packaging is TODO.
 
 Class autoloading follows WordPress file naming:
 `ContentGates\Providers\Static_Provider` lives at
@@ -68,26 +63,29 @@ Keep development and test data separate. Do not run database-resetting suites ag
 
 ## Quality and diagnostics
 
+- Structure the code and documentation to maximize understanding. The audience consists of technical product managers and engineers, but not experts. Complex topics must be explained step-by-step, with diagrams and examples.
 - Required result: zero restricted bytes in page, REST, and feed responses for non-entitled requests under the agreed access policy. Record the PRD's accepted risk exceptions explicitly.
 - Cache hit rate must remain within 5 percentage points of the baseline on the same URLs with a comparable workload. Save the workload, versions, and results.
 - Check crawler structured data with Google's Rich Results Test. Record all leak-surface findings and permitted limitations.
 - Before completion, run applicable build, lint, analysis, and test checks. Report failures and skipped checks; missing tooling is not a pass.
 - `npm run doctor` is the environment health check. TODO: Add safe debug logging and reproducible benchmark commands. Record confirmed traps with their regression tests.
+- Organize the work in atomic commits that are easy for humans to review.
 - Sign commits; ensure local Git configuration does not disable signing. Never bypass checks merely to obtain a passing result.
 
 ## Repo layout
 
 - `content-gates.php`: plugin entrypoint, constants, autoloader
-- `inc/`: server PHP (`class-plugin.php` wires components to hooks)
-- `docs/`: docs for human users, including the public hook reference
-- `spec/`: product specification
+- `artifacts/`: gitignored Playwright output and auth storage state
 - `bin/`: repo scripts (`doctor.mjs`)
+- `docs/`: docs for human users, including the public hook reference
+- `inc/`: server PHP (`class-plugin.php` wires components to hooks)
+- `spec/`: product specification
+- `src/`: browser code (TypeScript)
 - `tests/`: ALL tests, fixtures, and test tooling
   - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `test-*.php`)
   - `tests/e2e/`: Playwright specs and `global-setup.ts`
   - `tests/debugging/`: debugging/analysis tools
 - `.github/workflows/ci.yml`: static checks, PHPUnit, Playwright
-- `artifacts/`: gitignored Playwright output and auth storage state
 
 ## Setup (from a clean checkout)
 
