@@ -45,6 +45,27 @@ final class Segment_Admin {
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_post_' . self::ACTION, array( $this, 'handle' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue' ) );
+	}
+
+	/**
+	 * Load the settings page stylesheet on that page only. Action callback for `admin_enqueue_scripts`.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @param string $hook_suffix Current admin page.
+	 */
+	public function enqueue( string $hook_suffix ): void {
+		if ( 'settings_page_' . self::PAGE !== $hook_suffix ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'content-gates-admin',
+			plugins_url( 'assets/admin.css', CONTENT_GATES_FILE ),
+			array(),
+			CONTENT_GATES_VERSION
+		);
 	}
 
 	/**
@@ -220,13 +241,13 @@ final class Segment_Admin {
 
 		echo '<td>' . esc_html( $segment->active ? __( 'Active', 'content-gates' ) : __( 'Inactive', 'content-gates' ) ) . '</td>';
 
-		echo '<td>';
+		echo '<td><div class="content-gates-actions">';
 		if ( $segment->crawler ) {
 			echo '<span class="description">' . esc_html__( 'Managed in config/crawlers.json', 'content-gates' ) . '</span>';
 		} else {
 			$this->render_row_forms( $segment );
 		}
-		echo '</td>';
+		echo '</div></td>';
 
 		echo '</tr>';
 	}
@@ -239,33 +260,33 @@ final class Segment_Admin {
 	private function render_row_forms( Segment $segment ): void {
 		$action_url = admin_url( 'admin-post.php' );
 
-		echo '<form method="post" action="' . esc_url( $action_url ) . '" style="display:inline-block;margin-right:1em">';
+		echo '<form method="post" action="' . esc_url( $action_url ) . '">';
 		$this->render_hidden_fields( $segment->active ? 'deactivate' : 'activate', $segment->key );
-		submit_button( $segment->active ? __( 'Deactivate', 'content-gates' ) : __( 'Activate', 'content-gates' ), 'secondary small', 'submit', false );
+		submit_button( $segment->active ? __( 'Deactivate', 'content-gates' ) : __( 'Activate', 'content-gates' ), 'secondary', 'submit', false );
 		echo '</form>';
 
-		echo '<form method="post" action="' . esc_url( $action_url ) . '" style="display:inline-block;margin-right:1em">';
+		echo '<form method="post" action="' . esc_url( $action_url ) . '">';
 		$this->render_hidden_fields( 'rename', $segment->key );
 		printf(
-			'<label class="screen-reader-text" for="%1$s">%2$s</label><input type="text" id="%1$s" name="name" value="%3$s" required class="small-text" style="width:10em"> ',
+			'<label class="screen-reader-text" for="%1$s">%2$s</label><input type="text" id="%1$s" name="name" value="%3$s" required>',
 			esc_attr( 'content-gates-rename-' . $segment->key ),
 			esc_html__( 'New name', 'content-gates' ),
 			esc_attr( $segment->name )
 		);
-		submit_button( __( 'Rename', 'content-gates' ), 'secondary small', 'submit', false );
+		submit_button( __( 'Rename', 'content-gates' ), 'secondary', 'submit', false );
 		echo '</form>';
 
 		if ( $segment->is_meter() ) {
-			echo '<form method="post" action="' . esc_url( $action_url ) . '" style="display:inline-block">';
+			echo '<form method="post" action="' . esc_url( $action_url ) . '">';
 			$this->render_hidden_fields( 'meter', $segment->key );
 			printf(
-				'<label>%1$s <input type="number" name="limit" min="1" value="%2$d" class="small-text"></label> <label>%3$s <input type="number" name="period_days" min="1" value="%4$s" class="small-text"></label> ',
+				'<label>%1$s <input type="number" name="limit" min="1" value="%2$d"></label><label>%3$s <input type="number" name="period_days" min="1" value="%4$s"></label>',
 				esc_html__( 'Limit', 'content-gates' ),
 				(int) $segment->limit,
 				esc_html__( 'Period (days)', 'content-gates' ),
 				esc_attr( (string) max( 1, (int) round( $segment->period / DAY_IN_SECONDS ) ) )
 			);
-			submit_button( __( 'Update meter', 'content-gates' ), 'secondary small', 'submit', false );
+			submit_button( __( 'Update meter', 'content-gates' ), 'secondary', 'submit', false );
 			echo '</form>';
 		}
 	}
@@ -288,11 +309,11 @@ final class Segment_Admin {
 		echo '<option value="meter">' . esc_html__( 'Meter: anonymous readers get a limited number of articles per period', 'content-gates' ) . '</option>';
 		echo '</select></td></tr>';
 
-		echo '<tr><th scope="row"><label for="content-gates-new-limit">' . esc_html__( 'Meter limit', 'content-gates' ) . '</label></th>';
-		echo '<td><input type="number" id="content-gates-new-limit" name="limit" min="1" value="5" class="small-text"> <p class="description">' . esc_html__( 'Articles per period. Meters only.', 'content-gates' ) . '</p></td></tr>';
+		echo '<tr class="content-gates-meter-only"><th scope="row"><label for="content-gates-new-limit">' . esc_html__( 'Meter limit', 'content-gates' ) . '</label></th>';
+		echo '<td><input type="number" id="content-gates-new-limit" name="limit" min="1" value="5" class="small-text"> <p class="description">' . esc_html__( 'Articles per period.', 'content-gates' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="content-gates-new-period">' . esc_html__( 'Meter period (days)', 'content-gates' ) . '</label></th>';
-		echo '<td><input type="number" id="content-gates-new-period" name="period_days" min="1" value="30" class="small-text"> <p class="description">' . esc_html__( 'Stored in seconds. Meters only.', 'content-gates' ) . '</p></td></tr>';
+		echo '<tr class="content-gates-meter-only"><th scope="row"><label for="content-gates-new-period">' . esc_html__( 'Meter period (days)', 'content-gates' ) . '</label></th>';
+		echo '<td><input type="number" id="content-gates-new-period" name="period_days" min="1" value="30" class="small-text"> <p class="description">' . esc_html__( 'Entered in days, stored in seconds.', 'content-gates' ) . '</p></td></tr>';
 
 		echo '</tbody></table>';
 		submit_button( __( 'Add segment', 'content-gates' ) );

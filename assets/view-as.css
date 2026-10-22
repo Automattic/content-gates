@@ -1,0 +1,76 @@
+/*
+ * The admin-bar "View as" switcher, shown on the front end to users who can
+ * edit posts. The admin bar ships no form styles, so the dropdown panel
+ * gets a solid dark background and readable controls here.
+ */
+
+#wpadminbar #wp-admin-bar-content-gates-view-as .ab-sub-wrapper {
+	min-width: 18em;
+}
+
+#wpadminbar #wp-admin-bar-content-gates-view-as-form .ab-item {
+	height: auto;
+	padding: 0;
+}
+
+#wpadminbar .content-gates-view-as {
+	background: #32373c;
+	color: #f0f0f1;
+	padding: 10px 12px;
+	line-height: 1.8;
+	font-size: 13px;
+}
+
+#wpadminbar .content-gates-view-as label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: #f0f0f1;
+	line-height: 1.8;
+}
+
+#wpadminbar .content-gates-view-as em {
+	color: #c3c4c7;
+	font-style: normal;
+	font-size: 12px;
+}
+
+#wpadminbar .content-gates-view-as input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	margin: 0;
+}
+
+#wpadminbar .content-gates-view-as select {
+	margin-left: auto;
+	background: #1d2327;
+	color: #f0f0f1;
+	border: 1px solid #50575e;
+	border-radius: 3px;
+	font-size: 12px;
+	line-height: 1.6;
+	padding: 1px 4px;
+}
+
+#wpadminbar .content-gates-view-as .content-gates-view-as-actions {
+	display: flex;
+	gap: 8px;
+	margin: 10px 0 0;
+}
+
+#wpadminbar .content-gates-view-as button {
+	background: #2271b1;
+	color: #fff;
+	border: 1px solid #2271b1;
+	border-radius: 3px;
+	padding: 4px 10px;
+	font-size: 12px;
+	line-height: 1.6;
+	cursor: pointer;
+}
+
+#wpadminbar .content-gates-view-as button.content-gates-view-as-reset {
+	background: transparent;
+	color: #f0f0f1;
+	border-color: #50575e;
+}

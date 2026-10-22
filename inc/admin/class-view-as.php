@@ -58,6 +58,25 @@ final class View_As {
 		add_action( 'send_headers', array( $this, 'send_no_store' ), 1 );
 		add_action( 'admin_bar_menu', array( $this, 'add_node' ), 200 );
 		add_action( 'admin_post_' . self::ACTION, array( $this, 'handle' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue' ) );
+	}
+
+	/**
+	 * Load the switcher stylesheet when the control will show. Action callback for `wp_enqueue_scripts`.
+	 *
+	 * @since 0.1.0
+	 */
+	public function enqueue(): void {
+		if ( ! is_admin_bar_showing() || ! current_user_can( 'edit_posts' ) ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'content-gates-view-as',
+			plugins_url( 'assets/view-as.css', CONTENT_GATES_FILE ),
+			array( 'admin-bar' ),
+			CONTENT_GATES_VERSION
+		);
 	}
 
 	/**
@@ -224,14 +243,14 @@ final class View_As {
 	private function form_html(): string {
 		$selected = $this->selection ?? array();
 
-		$html  = '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="padding:6px 10px;line-height:1.8;min-width:14em">';
+		$html  = '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="content-gates-view-as">';
 		$html .= '<input type="hidden" name="action" value="' . esc_attr( self::ACTION ) . '">';
 		$html .= wp_nonce_field( self::ACTION, self::NONCE, true, false );
 
 		foreach ( $this->segments->active() as $segment ) {
 			if ( $segment->is_meter() ) {
 				$current = $selected[ $segment->group_name ] ?? '';
-				$html   .= '<label style="display:block">' . esc_html( $segment->name ) . ' <select name="meters[' . esc_attr( $segment->key ) . ']">';
+				$html   .= '<label>' . esc_html( $segment->name ) . ' <select name="meters[' . esc_attr( $segment->key ) . ']">';
 				foreach ( array(
 					''     => __( 'no cookie', 'content-gates' ),
 					'open' => 'open',
@@ -244,15 +263,15 @@ final class View_As {
 				continue;
 			}
 
-			$html .= '<label style="display:block"><input type="checkbox" name="segments[]" value="' . esc_attr( $segment->key ) . '"' . checked( isset( $selected[ $segment->group_name ] ), true, false ) . '> ' . esc_html( $segment->name );
+			$html .= '<label><input type="checkbox" name="segments[]" value="' . esc_attr( $segment->key ) . '"' . checked( isset( $selected[ $segment->group_name ] ), true, false ) . '> ' . esc_html( $segment->name );
 			if ( $segment->crawler ) {
 				$html .= ' <em>' . esc_html__( '(crawler)', 'content-gates' ) . '</em>';
 			}
 			$html .= '</label>';
 		}
 
-		$html .= '<p style="margin:6px 0 0"><button type="submit" class="button button-small">' . esc_html__( 'View as this reader', 'content-gates' ) . '</button> ';
-		$html .= '<button type="submit" name="reset" value="1" class="button button-small">' . esc_html__( 'Reset', 'content-gates' ) . '</button></p>';
+		$html .= '<div class="content-gates-view-as-actions"><button type="submit">' . esc_html__( 'View as this reader', 'content-gates' ) . '</button>';
+		$html .= '<button type="submit" name="reset" value="1" class="content-gates-view-as-reset">' . esc_html__( 'Reset', 'content-gates' ) . '</button></div>';
 		$html .= '</form>';
 
 		return $html;
