@@ -1,6 +1,6 @@
 # Editor UI
 
-This file specifies content assignment, server-side withholding, and delivery verification. [Segment Admin](segment-admin.md) specifies segment management, shared project context, discovery, and accepted risks. Together with the [API contract](api.md), the [page cache design](page-cache.md), and the [decisions](decisions.md), these are the implementation requirements. The original [PRD](https://linear.app/a8c/project/cms-content-gating-cache-aware-anonymous-gating-7ee422c04ec1/overview) and [discovery document](https://linear.app/a8c/document/prd-detail-discovery-plan-competition-risks-ownership-e2a33a453bdb) are provenance; reading them is not required to understand this spec. Explicit decisions in these specs supersede the original proposals.
+This file specifies content assignment, server-side withholding, and delivery verification. [Segment Admin](segment-admin.md) specifies segment management, shared project context, discovery, and accepted risks. Together with the [API contract](api.md), the [page cache design](page-cache.md), and the [decisions](decisions.md), these are the implementation requirements. Explicit decisions in these specs supersede the original proposals.
 
 ## Problem and Goals
 

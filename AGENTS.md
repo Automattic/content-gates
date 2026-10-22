@@ -62,14 +62,14 @@ Keep development and test data separate. Do not run database-resetting suites ag
 
 - Test the changed behavior and add a meaningful regression test for each bug fix. Start with the smallest useful test, then run relevant integration and end-to-end checks.
 - Cover successful, denied, invalid, and expired membership; PHP/REST callers; editor assignment; template checks; metering; crawler responses; and cache transitions.
-- Assert response content, not only visual output. Test page, REST, and feed protection, plus every other leak surface listed in the PRD.
+- Assert response content, not only visual output. Test page, REST, and feed protection, plus every other leak surface listed in the spec.
 - Verify cookie-setting timing, cache hits/misses, purges, and membership changes. Require live VIP evidence for platform claims.
 - TODO: Configure line and branch coverage reporting, exclusions, and CI thresholds. Until agreed, require tests for each acceptance criterion and critical decision branch; identify uncovered paths. Do not claim a coverage percentage without measurement.
 
 ## Quality and diagnostics
 
 - Structure the code and documentation to maximize understanding. The audience consists of technical product managers and engineers, but not experts. Complex topics must be explained step-by-step, with diagrams and examples.
-- Required result: zero restricted bytes in page, REST, and feed responses for non-entitled requests under the agreed access policy. Record the PRD's accepted risk exceptions explicitly.
+- Required result: zero restricted bytes in page, REST, and feed responses for non-entitled requests under the agreed access policy. Record the spec's accepted risk exceptions explicitly.
 - Cache hit rate must remain within 5 percentage points of the baseline on the same URLs with a comparable workload. Save the workload, versions, and results.
 - Check crawler structured data with Google's Rich Results Test. Record all leak-surface findings and permitted limitations.
 - Before completion, run applicable build, lint, analysis, and test checks. Report failures and skipped checks; missing tooling is not a pass.
