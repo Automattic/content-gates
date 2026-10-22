@@ -16,7 +16,7 @@ The product must be described as a gating primitive that needs an entitlement pr
 | Provider integration | Documented, versioned server- and client-side membership assignment contract; a worked Newspack `register_rule()` bridge is the only shipped first-party adapter. |
 | Cache personalization | One `Vary_Cache` group per segment, with safe response variants and measured hit rate. Responses are keyed on the segments each URL declares before `send_headers`, narrowed by an Edge Worker; see [page-cache.md](page-cache.md). |
 | Anonymous metering | A VIP Edge Worker advances each meter segment's `open` / `last` / `wall` state on every metered view, including cache hits, from the limit and period on the meter segment record. See the metering section of [page-cache.md](page-cache.md). No general eligibility-rule UI is implied. |
-| Crawler classification | Search and AI crawlers receive a distinct edge-selected segment and accurate Google paywall structured data using `isAccessibleForFree` and `hasPart` with `cssSelector`. |
+| Crawler classification | Search and AI crawlers receive VIP-maintained, edge-selected crawler segments and accurate Google paywall structured data using `isAccessibleForFree` and `hasPart` with `cssSelector`. See the crawler section of [page-cache.md](page-cache.md). |
 
 Metering is a project deliverable. The design is in [page-cache.md](page-cache.md); integration evidence on a VIP test application is still required. A meter segment's limit and period are configured on its segment record.
 
@@ -28,7 +28,7 @@ Metering is a project deliverable. The design is in [page-cache.md](page-cache.m
 - As a publisher using Newspack, I can connect its eligibility decisions through the supplied `register_rule()` bridge. The bridge assigns membership; this primitive then makes that membership available to restriction checks and cache personalization.
 - As a publisher using another entitlement provider, I can have that provider assign a reader to a configured segment through the documented, versioned server- or client-side contract. Other providers use this contract rather than requiring a first-party adapter or a new eligibility engine in the admin UI.
 - As a publisher metering anonymous readers, I can use Newspack's existing free-article count and reset-period settings. A VIP Edge Worker maintains and advances the `open` / `last` / `wall` meter state even on cache hits, which never execute PHP.
-- As a publisher, I have a separate crawler/bot segment, classified through the edge-worker mechanism. Its rendered view includes the required paywall structured data. This and anonymous metering are the only membership decisions this project makes itself.
+- As a publisher, I have VIP-maintained crawler segments, such as search crawlers and AI crawlers, classified at the edge per request. I can assign content to them but not edit them. Their rendered view includes the required paywall structured data. This and anonymous metering are the only membership decisions this project makes itself.
 - As a template developer, I can check membership with the documented public PHP call `is_reader_in_segment( $segment_id )` in a header, footer, shortcode, or widget without using an editor control.
 
 ## Finish Line / Verification

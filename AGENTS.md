@@ -82,6 +82,8 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `content-gates.php`: plugin entrypoint, constants, autoloader
 - `artifacts/`: gitignored Playwright output and auth storage state
 - `bin/`: repo scripts (`doctor.mjs`)
+- `config/`: data shared by the plugin and the Edge Worker (`crawlers.json`; not scaffolded yet)
+- `edge/`: VIP-managed Edge Worker source (AssemblyScript; not scaffolded yet)
 - `docs/`: docs for human users, including the public hook reference
 - `inc/`: server PHP (`class-plugin.php` wires components to hooks)
 - `spec/`: product specification

@@ -75,13 +75,15 @@ REST responses build the declared set in `rest_pre_serve_request` instead, befor
 
 Both are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
 
+The worker sends one request header to origin, `X-WPVIP-Content-Gates-Edge`, carrying the version of `config/crawlers.json` it was built with. The plugin compares it with its own copy and shows an admin notice on a mismatch.
+
 ## Cache group names
 
-Each segment is one `Vary_Cache` group. The group name is the key on a single site and `{blog_id}-{key}` on multisite. Meter segments are site-defined and follow the same rule. The declared-set header carries group names. Naming of crawler segments on multisite is open; see the crawler discussion.
+Each segment is one `Vary_Cache` group. The group name is the key on a single site and `{blog_id}-{key}` on multisite. Meter segments are site-defined and follow the same rule. Crawler segments are VIP-maintained, network-wide, and never prefixed: their values are injected per request and never stored in a browser cookie, so they cannot cross sites. The declared-set header carries group names.
 
 ## Second cookie writers
 
-`Vary_Cache` writes `vip-go-seg`. Any other writer, such as an Edge Worker, must reproduce the format exactly: the `vc-v1__` prefix, `_--_` between name and value, `---__` between groups, groups sorted by name, and the `[A-Za-z0-9_-]` character set. The edge writes meter states (see the metering section of [page-cache.md](page-cache.md)) and crawler values, whose configuration is still under discussion.
+`Vary_Cache` writes `vip-go-seg`. Any other writer, such as an Edge Worker, must reproduce the format exactly: the `vc-v1__` prefix, `_--_` between name and value, `---__` between groups, groups sorted by name, and the `[A-Za-z0-9_-]` character set. The edge writes meter states to the browser and injects crawler values into the origin-bound cookie header only; see the metering and crawler sections of [page-cache.md](page-cache.md).
 
 ## Debugging
 

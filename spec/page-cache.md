@@ -343,3 +343,84 @@ Edge KV is not durable, so it cannot hold the count. Origin cannot hold it becau
 2. Is JA3 or JA4 exposed to the worker as a request attribute, for cookie binding?
 3. Does `Vary_Cache` at origin re-serialize groups it did not register, so the meter value survives a miss? The source suggests yes; it needs a regression test on the VIP test application.
 
+## Crawler classification
+
+Search and AI crawlers must receive the gated content together with paywall structured data, and they must never be able to carry that access into a later request. Crawler segments are maintained by VIP, not by customers. VIP must still be able to add or remove a segment and change the user agents in a segment through a release.
+
+### Principle
+
+1. **One file, two readers.** `config/crawlers.json` in this repository lists every crawler segment with its key, label, and user-agent patterns. The Edge Worker build in `edge/` compiles it in. The plugin ships the same file and reads it at load. There is no runtime configuration at the edge or in the Dashboard.
+2. **Classification is per request and stateless.** The worker tests the user agent in phase 1 and injects a value for each matching segment into the narrowed segmentation header and into the cookie header it forwards to origin. It never writes a crawler value to the browser.
+3. **Origin mirrors, never edits.** The plugin mirrors each configured crawler segment into a reserved segment record so the editor and the declared set work unchanged. The record is read-only in the admin.
+
+### The configuration file
+
+```json
+{
+	"version": 3,
+	"segments": {
+		"crawlers-search": {
+			"label": "Search crawlers",
+			"user_agents": [ "Googlebot", "bingbot", "DuckDuckBot" ]
+		},
+		"crawlers-ai": {
+			"label": "AI crawlers",
+			"user_agents": [ "GPTBot", "ClaudeBot", "PerplexityBot" ]
+		}
+	}
+}
+```
+
+Keys follow the normal segment key rules. Patterns are case-insensitive substrings of the user agent; a segment may list any number. `version` increments on every change to the file. The format leaves room for verified-bot data later, for example an IP-range or reverse-DNS flag per segment, without a format change.
+
+### Request flow
+
+Googlebot requests `/article-1/`, gated on "subscriber, crawlers-search".
+
+**Phase 1.** The user agent matches `crawlers-search`. The request has no cookie, so the reader's groups are `{crawlers-search=1}`. The KV record for the URL is `[crawlers-search, subscriber]`, so the narrowed header is `vc-v1__crawlers-search_--_1`. The worker also sends its configuration version to origin on a miss:
+
+```
+X-VIP-Go-Segmentation: vc-v1__crawlers-search_--_1
+X-WPVIP-Content-Gates-Edge: 3
+```
+
+**Origin, on a miss.** `Vary_Cache` parses the forwarded cookie and `is_reader_in_segment( 'crawlers-search' )` is `true`. The Group renders in full, and the plugin emits the paywall structured data for the post. The response declares `crawlers-search, subscriber` and is stored under the crawler key. A human reader never carries a crawler value, so human keys are unaffected by crawler segments in the declared set.
+
+**Phase 4.** The worker writes no cookie for a crawler. A later request from the same crawler is classified again from scratch.
+
+### Structured data
+
+On a response where any crawler segment is `true`, the plugin wraps each rendered gated Group in a marker class and emits JSON-LD on singular posts with `isAccessibleForFree: false` and one `hasPart` entry per Group with a `cssSelector` for that class. Posts with no gated Groups emit nothing. The marker and JSON-LD are emitted only for crawler variants, so human responses carry no hint of which parts are gated.
+
+### Declarations
+
+Crawler reads happen outside blocks, in the structured-data output. The plugin auto-declares every crawler segment on singular posts whose declared set is not empty, so themes never have to declare them. This costs no human variants: a human reader has no crawler value, so the narrowed key is the same with or without the crawler segments.
+
+### Adding, removing, and changing segments
+
+| Change | Edge | Origin | Cache |
+| --- | --- | --- | --- |
+| Change a segment's user agents | Worker release. A crawler may move from one segment to another. | None, except the displayed list. | No purge. Variants are keyed on the segment value, not the user agent. |
+| Add a segment | Worker release injects the new value. | Plugin release mirrors a new record. Editors can assign it. | No global purge. A post save purges its URL when an editor assigns the segment. |
+| Remove a segment | Worker release stops injecting it. | Plugin release marks the mirrored record inactive. It is never deleted, so existing assignments survive and are shown as inactive. It leaves every declared set. | Global purge, as for any segment deactivation. |
+
+### Version skew
+
+The worker and the plugin are released separately, so one side can be ahead of the other. Both skews are safe:
+
+- **The worker knows a segment the plugin does not.** The injected value reaches origin, but the segment is in no declared set, so narrowing drops it and nothing varies on it.
+- **The plugin knows a segment the worker does not.** Editors can assign it, but no request ever carries the value, so crawlers receive the anonymous view for that Group.
+
+To make skew visible, the worker sends its configuration version in `X-WPVIP-Content-Gates-Edge` on every origin request. The plugin compares it with its own copy and shows an admin notice when they differ. Releases of the worker and the plugin should ship the same `version`.
+
+### Accepted limits
+
+- **Spoofing.** Classification uses the user agent. A spoofed user agent receives the crawler variant. This is the accepted risk already recorded in [segment-admin.md](segment-admin.md). Verified-bot data at the edge would reduce it and is a platform question.
+- **Unrecognized crawlers** receive the anonymous view, with no structured data.
+- **Rich Results.** Google's test must accept the crawler variant's markup. That is release evidence, not a design assumption.
+
+### Platform questions
+
+1. Does the VIP edge expose verified-bot information (IP ranges or reverse DNS) to a worker?
+2. Can a phase 2 worker add a header and rewrite the cookie header on the origin request? The design depends on both.
+
