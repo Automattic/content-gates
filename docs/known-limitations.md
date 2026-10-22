@@ -1,0 +1,70 @@
+# Known limitations and open questions
+
+What this prototype does not do, what it assumes, and what must be proven on
+a WPVIP application before any of it is a product claim.
+
+## Accepted risks (from the spec)
+
+- **Cookie forgery.** `vip-go-seg` is plaintext and `vip-go-auth` has no
+  integrity check. A reader who writes `subscriber_--_1` into the cookie is a
+  subscriber. Recorded in `spec/segment-admin.md`; not mitigated here.
+- **Crawler spoofing.** Classification is by user agent. A spoofed agent
+  receives the crawler variant. Verified-bot data at the edge is a platform
+  question.
+- **First metered visit.** A reader with no cookie sees the gate once; the
+  worker writes `open` and the next metered view delivers content. Deleting
+  the cookie resets the allowance after one more round trip.
+- **Meter counts subscribers too.** The worker does not know gating
+  semantics. Harmless while subscribed.
+
+## Platform questions (unverified on WPVIP)
+
+1. Can a phase 1 worker rewrite `X-VIP-Go-Segmentation`, and does the cache
+   key on the rewritten value? The whole narrowing design depends on it.
+2. Can a phase 3 worker set `Cache-Control: no-store` so the cache does not
+   store the response? The SDK's `setCacheControl()` suggests yes.
+3. KV read latency in phase 1, write visibility across edge locations, and
+   eviction rate. KV is non-durable; eviction costs one miss per URL, not a
+   leak.
+4. Can origin write to edge KV at save time? Not needed for correctness.
+5. Encrypted mode (`vip-go-auth`): can a worker read and rewrite the
+   decrypted groups? The worker is written for plaintext mode only.
+6. The cap on stored variants per URL.
+7. Can the worker hold a signing secret (`getenv`) and is JA3/JA4 exposed for
+   cookie binding? `getenv` exists in the SDK; JA3 is not documented.
+8. Does `resp.request` (the request snapshot the coverage check reads) exist
+   on the deployed runtime? The SDK README says it needs runtime support.
+9. Does VIP's site purge (`WPCOM_VIP_Cache_Manager::purge_site_cache()`)
+   exist under that name and purge every variant? The default listener
+   guards with `method_exists`.
+
+## Not built in this slice
+
+- **PHPCS sniff** that flags direct `Vary_Cache` reads outside the plugin
+  (spec/api.md asks for one).
+- **Newspack integration beyond the rule bridge:** suppressing the
+  client-side metering reveal, bridging `Content_Gate` restriction, and the
+  reverse rule (segment as a Newspack rule value). Discovery against
+  `newspack-workspace` is still open.
+- **Template-part, pattern, and widget-area gating UI.** Developers use
+  `is_reader_in_segment()` with a declaration.
+- **Autosave-aware previews.** The declared set is computed when a post is
+  saved; a Group assigned in an unsaved preview fails closed until saved.
+- **Search.** A search for a gated phrase still finds the post. No bytes
+  leak, but existence does.
+- **Fill endpoint or fragment hydration.** Separate work.
+- **Coverage reporting and CI thresholds.** PHPUnit runs without coverage.
+- **Hit-rate benchmark.** No workload has been measured. The variant bound
+  is by construction (2^k for k declared boolean segments, times 4 per meter)
+  but the 5-percentage-point target needs the VIP measurement the spec
+  describes.
+- **Multisite** is implemented (group names are `{blog_id}-{key}`) but the
+  PHPUnit suite runs single-site only.
+- **Rich Results Test.** The JSON-LD follows Google's paywall schema; it has
+  not been submitted to the test, which needs a public URL.
+
+## Simulator variances
+
+`docs/edge-worker.md` lists where the local simulator can differ from the
+real edge. Treat every edge claim in this repository as "designed and
+simulated", not "observed".

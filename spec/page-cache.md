@@ -38,20 +38,20 @@ The cache keys on URL plus the full value of the `X-VIP-Go-Segmentation` request
 
 The origin must know the segments a response will read before it sends headers. That is the declared set:
 
-1. **Declare before `send_headers`.** The plugin computes the declared set from content and from explicit declarations by customer code, and sends it as a response header. Nothing is learned from the render.
+1. **Declare before output.** The plugin computes the declared set from content and from explicit declarations by customer code at the end of the `wp` action (core fires `send_headers` before `wp`, so that is the last hook where declarations made on `wp` are visible; see [decisions.md](decisions.md)), and sends it as a response header. Nothing is learned from the render.
 2. **Undeclared reads fail closed.** A read for a segment that is not in the declared set returns `false` and raises `_doing_it_wrong()` under `WP_DEBUG`. A render can never depend on a segment the key does not cover.
 
 The edge worker learns each URL's declared set from the response header and keeps it in edge KV store. Content-level changes will result in a cache purge, which refetches the response from origin and updates the edge KV store. Broader changes, such as adding or removing segment checks in template code, will rely on natural cache expiration.
 
 ### The declared set
 
-For each request the plugin builds the initial declared set at `send_headers`, after the main query is resolved:
+For each request the plugin builds the initial declared set at the end of the `wp` action, after the main query is resolved:
 
 | Request | Content contribution |
 | --- | --- |
 | Singular post or page | Every segment assigned to any Group in the post content, nested or not, read from the saved block attributes. Computed at save time and stored in post meta so no parse runs per request. Assignments to inactive segments are dropped. |
 | Feed, oEmbed, embed | The union over the posts the feed or embed renders. |
-| REST response with rendered content | The union over the posts in the response, computed in `rest_pre_serve_request` before the JSON is sent. |
+| REST response with rendered content | The union over the posts whose content rendered, merged as each renders and sent in `rest_pre_echo_response` before the JSON is echoed. |
 | Archive, search, home | Nothing from content. Teasers never read segments (decided). |
 
 Reads that are not block assignments are added by the site through the declaration API below. The plugin sorts and de-duplicates the keys and sends:
@@ -60,11 +60,11 @@ Reads that are not block assignments are added by the site through the declarati
 X-WPVIP-Content-Gates-Declared: donor, subscriber
 ```
 
-The header carries `Vary_Cache` group names: the segment keys on a single site, and `{blog_id}-{key}` on multisite (see [decisions.md](decisions.md)). Inactive segments are never included. A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's `send_headers` callback (an early exit before `send_headers`) sends no header. Such a response also lacks the `Vary` header that `Vary_Cache` sends at the same hook, so the worker caches it as unsegmented. A response with the `Vary` header but no declared header is treated as unknown and not stored.
+The header carries `Vary_Cache` group names: the segment keys on a single site, and `{blog_id}-{key}` on multisite (see [decisions.md](decisions.md)). Inactive segments are never included. A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's finalize callback (an early exit before the end of the `wp` action) sends no header. Such a response also lacks the `Vary` header that `Vary_Cache` sends at the same hook, so the worker caches it as unsegmented. A response with the `Vary` header but no declared header is treated as unknown and not stored.
 
 ### Declaration API
 
-Two ways to declare, both usable only before the plugin's `send_headers` callback. `send_headers` fires before `template_redirect`, so declarations belong on the `wp` action (the main query is resolved there) or in the filter. A declaration at `template_redirect` or later returns `content_gates_too_late`.
+Two ways to declare, both usable only before the plugin's finalize callback, which runs at the end of the `wp` action (priority `PHP_INT_MAX`). The main query is resolved there and nothing has been output, so declarations belong on the `wp` action at the default priority or in the filter. A declaration at `template_redirect` or later returns `content_gates_too_late`.
 
 ```php
 use function Automattic\VIP\ContentGates\declare_segment;

@@ -42,6 +42,12 @@
 - Stepped values: Meter segments carry `open`, `last`, or `wall`, written only by the edge. `is_reader_in_segment()` on a meter segment is `true` for `open` and `last`. `get_reader_segment_value()` returns the stored value or `null`. Values match `/^[A-Za-z0-9_-]+$/`. Providers cannot assign a value to a meter segment. Metering, including the meter worker, is in the initial phase.
 - Meter configuration: Lives on the segment record at origin and reaches the edge in a response header stored with each cached copy. Nothing is configured at the edge. Changing a limit or period requires the global purge already required for segment configuration changes.
 
+## Timing corrections (2026-10-22, prototype)
+
+- Core's `WP::main()` fires `send_headers` **before** the `wp` action. The spec placed declared-set finalization on `send_headers` and declarations on `wp`, which cannot both hold. Decided: the plugin finalizes at the end of `wp` (priority `PHP_INT_MAX`); declarations stay on `wp`, exactly as the spec's examples show. Membership writes still close at `send_headers`, where `Vary_Cache` writes the cookie. Both hooks run before any output.
+- REST responses finalize in `rest_pre_echo_response` rather than `rest_pre_serve_request`, because `_embed`ded posts render after the latter; `Vary` is sent on every REST response the plugin finalizes, since `Vary_Cache` never sees `send_headers` there and a REST response with gated content and no `Vary` would be cached once for everyone.
+- Meter headers are sent on singular pages only. Feeds and REST responses declare the meter (so the key covers the state) but are not article views and are not counted.
+
 ## Caching
 
 We assume that membership providers are external systems that require interaction over HTTP. However, since customer code calls our API to add or remove users from a segment, we expect them to implement their own caching.
