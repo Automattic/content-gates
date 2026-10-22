@@ -42,13 +42,14 @@ Rules that apply to every function:
 | `content_gates_invalid_segment` | assign, remove, declare | The reference resolves to no segment |
 | `content_gates_inactive_segment` | assign, declare | The segment is inactive |
 | `content_gates_invalid_value` | assign | The value does not match the allowed pattern, or the segment is a meter, whose values only the edge writes |
+| `content_gates_platform_unavailable` | assign, remove | `Vary_Cache` is not loaded outside a `local` environment |
 
 ## Hooks
 
 | Hook | Type | Arguments | When |
 | --- | --- | --- | --- |
 | `content_gates_loaded` | action | `Plugin $plugin` | Once, after the plugin registered its hooks. Providers hook here |
-| `content_gates_declared_segments` | filter | `string[] $segments, \WP_Query $query` | At `send_headers`, when the plugin builds the declared set. Return the full list of keys |
+| `content_gates_declared_segments` | filter | `string[] $segments, \WP_Query $query` | At `send_headers`, when the plugin builds the declared set. The filter can add keys but never remove them: keys that came from block assignments or earlier declarations are restored after the filter runs. Removing one would make its reads fail closed and withhold content with no visible cause |
 
 Providers that follow the post-redirect-get pattern redirect on WPVIP's `vip_vary_cache_did_send_headers( $sent_vary, $sent_cookie )` action, which fires after `Vary_Cache` has written the cookie.
 
@@ -56,7 +57,7 @@ Providers that follow the post-redirect-get pattern redirect on WPVIP's `vip_var
 
 | Step | Hook | Who |
 | --- | --- | --- |
-| Segment registry loads; groups registered with `Vary_Cache` | `init`, before priority 10 | Plugin |
+| Segment registry loads; groups registered with `Vary_Cache` | `init`, before priority 10 | Plugin. Must stay before priority 10: `Vary_Cache::register_groups()` resets each group to an empty value, so registering after the cookie is parsed erases membership |
 | Cookie parsed into membership | `init` priority 10 | `Vary_Cache` |
 | Assign or remove membership | `init` after 10, up to `send_headers` | Provider |
 | Declare segments read outside blocks | `wp` | Site code |
@@ -65,6 +66,12 @@ Providers that follow the post-redirect-get pattern redirect on WPVIP's `vip_var
 | Reads | `template_redirect` and later | Blocks, templates, shortcodes |
 
 REST responses build the declared set in `rest_pre_serve_request` instead, before the JSON is sent. Feeds, oEmbed, and embeds follow the page path.
+
+REST requests exit before the `send_headers` action, so `Vary_Cache` never writes its cookie on them by itself. A provider route that assigns membership during a REST request would return 200 and set nothing. The plugin therefore calls `Vary_Cache::send_headers()` in `rest_pre_serve_request` when an assignment or removal happened in the request. Provider routes need no extra step, but they must assign before the response is served.
+
+## Platform loading
+
+`Vary_Cache` is opt-in on WPVIP: nothing in the platform loads `cache/class-vary-cache.php` by itself. The plugin requires the file from the mu-plugins directory when it exists. When it does not exist and `WP_ENVIRONMENT_TYPE` is not `local`, the plugin fails closed: every read returns `false`, assignments return `content_gates_platform_unavailable`, and gated Groups are withheld for everyone. A plaintext cookie adapter runs only in a `local` environment, for development and tests, and is never a fallback in production.
 
 ## Response headers
 

@@ -76,7 +76,7 @@ $result = declare_segment( 'donor' ); // true|WP_Error
 ```php
 // Declarative. Runs when the plugin builds the set, with the main query available.
 add_filter( 'content_gates_declared_segments', function ( array $segments, \WP_Query $query ): array {
-	// Return the full list; add or remove keys.
+	// Add keys. Keys from block assignments or earlier declarations cannot be removed.
 	return $segments;
 }, 10, 2 );
 ```
@@ -377,7 +377,7 @@ Keys follow the normal segment key rules. Patterns are case-insensitive substrin
 
 Googlebot requests `/article-1/`, gated on "subscriber, crawlers-search".
 
-**Phase 1.** The user agent matches `crawlers-search`. The request has no cookie, so the reader's groups are `{crawlers-search=1}`. The KV record for the URL is `[crawlers-search, subscriber]`, so the narrowed header is `vc-v1__crawlers-search_--_1`. The worker also sends its configuration version to origin on a miss:
+**Phase 1.** The worker first removes every crawler group from the groups it parsed from the incoming cookie, so a browser that sends `crawlers-search_--_1` in `vip-go-seg` gains nothing. Only the worker's own classification can set a crawler value. The user agent matches `crawlers-search`. The request has no cookie, so the reader's groups are `{crawlers-search=1}`. The KV record for the URL is `[crawlers-search, subscriber]`, so the narrowed header is `vc-v1__crawlers-search_--_1`. The worker also sends its configuration version to origin on a miss:
 
 ```
 X-VIP-Go-Segmentation: vc-v1__crawlers-search_--_1
@@ -415,6 +415,7 @@ To make skew visible, the worker sends its configuration version in `X-WPVIP-Con
 
 ### Accepted limits
 
+- **Forged cookies gain nothing.** The worker strips crawler groups from the incoming cookie before classifying, and the cookie it forwards to origin contains only its own classification. Origin never sees a browser-supplied crawler value.
 - **Spoofing.** Classification uses the user agent. A spoofed user agent receives the crawler variant. This is the accepted risk already recorded in [segment-admin.md](segment-admin.md). Verified-bot data at the edge would reduce it and is a platform question.
 - **Unrecognized crawlers** receive the anonymous view, with no structured data.
 - **Rich Results.** Google's test must accept the crawler variant's markup. That is release evidence, not a design assumption.

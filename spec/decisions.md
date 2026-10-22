@@ -32,6 +32,10 @@
 
 ## Membership runtime
 
+- Platform loading: `Vary_Cache` is opt-in on WPVIP. The plugin requires it from mu-plugins itself. Without it, outside a `local` environment, the plugin fails closed: reads return `false`, assignments error, gated Groups are withheld. A plaintext cookie adapter exists for `local` only and is never a production fallback.
+- REST assignments: REST requests exit before `send_headers`, so the plugin triggers the `Vary_Cache` cookie write in `rest_pre_serve_request` when a request assigned or removed membership. Providers' own routes need nothing extra.
+- Declared-set filter: `content_gates_declared_segments` can add keys but never remove keys that came from block assignments or earlier declarations.
+
 - The provider assigns membership on every origin request, for logged-in and anonymous readers alike. Login grants nothing.
 - Cookie lifetime: One day by default, filterable. Providers re-assert membership on every origin request. The maximum time a lapsed subscriber keeps the entitled view is the cookie lifetime. A short TTL needs no refresh endpoint and no client script.
 - Removal of the last segment: No workaround. `Vary_Cache` skips the cookie write when the serialized value is empty, so a reader removed from their last segment keeps the stale cookie until it expires. The wrapper documents this gap and the plugin files the upstream bug. Wait for the upstream fix rather than hand-write the cookie. The one-day TTL bounds the exposure.
