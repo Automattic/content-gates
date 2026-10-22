@@ -27,7 +27,8 @@ An unknown reference returns `content_gates_invalid_segment` from writers. Reade
 
 Rules that apply to every function:
 
-- A boolean segment stores the value `1`. A stepped segment stores one of its configured values. Values match `/^[A-Za-z0-9_-]+$/`. `is_reader_in_segment()` with a value checks for that exact value; without a value it checks for any value.
+- A boolean segment stores the value `1`. A meter segment stores `open`, `last`, or `wall`, written by the edge. Values match `/^[A-Za-z0-9_-]+$/`. `is_reader_in_segment()` with a value checks for that exact value. Without a value it checks for any value on a boolean segment, and for `open` or `last` on a meter segment, so "in the meter" means "has allowance left".
+- Meter values are written only by the Edge Worker. `assign_reader_to_segment()` on a meter segment returns `content_gates_invalid_value`. See the metering section of [page-cache.md](page-cache.md).
 - A read of a segment that is not in the declared set returns `false` or `null` and raises `_doing_it_wrong()` under `WP_DEBUG`. This is the fail-closed rule from [page-cache.md](page-cache.md). It also applies to a read made before the declared set is final.
 - Inactive segments are never declared. Reads of them return `false`. Assignment to them is refused.
 - Membership is parsed from the cookie by `Vary_Cache` at `init` priority 10. Nothing in this API works before that.
@@ -40,7 +41,7 @@ Rules that apply to every function:
 | `content_gates_too_late` | assign, remove, declare | Called after the hook window closed |
 | `content_gates_invalid_segment` | assign, remove, declare | The reference resolves to no segment |
 | `content_gates_inactive_segment` | assign, declare | The segment is inactive |
-| `content_gates_invalid_value` | assign | The value does not match the allowed pattern or the segment's configured values |
+| `content_gates_invalid_value` | assign | The value does not match the allowed pattern, or the segment is a meter, whose values only the edge writes |
 
 ## Hooks
 
@@ -65,13 +66,22 @@ Providers that follow the post-redirect-get pattern redirect on WPVIP's `vip_var
 
 REST responses build the declared set in `rest_pre_serve_request` instead, before the JSON is sent. Feeds, oEmbed, and embeds follow the page path.
 
+## Response headers
+
+| Header | Sent when | Value |
+| --- | --- | --- |
+| `X-WPVIP-Content-Gates-Declared` | Every response that passes the plugin's `send_headers` callback | Sorted group names in the declared set, comma separated; empty when none |
+| `X-WPVIP-Content-Gates-Meter` | The declared set contains a meter segment; once per meter | `{group}; id={post_id}; limit={n}; period={seconds}` |
+
+Both are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
+
 ## Cache group names
 
-Each segment is one `Vary_Cache` group. The group name is the key on a single site and `{blog_id}-{key}` on multisite. The declared-set header carries group names. Naming of edge-written segments on multisite is open; see the crawler and metering discussion.
+Each segment is one `Vary_Cache` group. The group name is the key on a single site and `{blog_id}-{key}` on multisite. Meter segments are site-defined and follow the same rule. The declared-set header carries group names. Naming of crawler segments on multisite is open; see the crawler discussion.
 
 ## Second cookie writers
 
-`Vary_Cache` writes `vip-go-seg`. Any other writer, such as an Edge Worker, must reproduce the format exactly: the `vc-v1__` prefix, `_--_` between name and value, `---__` between groups, groups sorted by name, and the `[A-Za-z0-9_-]` character set. Which segments the edge writes is part of the crawler and metering discussion.
+`Vary_Cache` writes `vip-go-seg`. Any other writer, such as an Edge Worker, must reproduce the format exactly: the `vc-v1__` prefix, `_--_` between name and value, `---__` between groups, groups sorted by name, and the `[A-Za-z0-9_-]` character set. The edge writes meter states (see the metering section of [page-cache.md](page-cache.md)) and crawler values, whose configuration is still under discussion.
 
 ## Debugging
 

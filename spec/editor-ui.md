@@ -24,7 +24,7 @@ The block UI adds a **Segments** control to the settings for Group blocks (`core
 - As an editor, I can still identify existing assignments to a deactivated segment, marked inactive. The segment is excluded from new assignment choices, and its existing references are preserved.
 - As a non-entitled anonymous reader, I receive the public content and applicable gate, with restricted content omitted from the server response. Disabling JavaScript, inspecting source, or scraping the response does not reveal the restricted content.
 - As an entitled reader, including an authenticated subscriber with a valid entitlement, I receive the content allowed by my segment memberships. Integration must preserve legitimate subscriber access while applying this spec's Group-based assignments.
-- As a publisher using anonymous metering, my content assignments work with the edge-managed `anon` / `m1` / `m2` / `m3` / `wall` sequence. A first-time reader sees the gate one request earlier than in Newspack today: granting metered access requires a round trip. The editor must not depend on a client-side reveal to restore withheld content.
+- As a publisher using anonymous metering, my content assignments work with the edge-managed `open` / `last` / `wall` meter state. A first-time reader sees the gate one request earlier than in Newspack today: granting metered access requires a round trip. The editor must not depend on a client-side reveal to restore withheld content.
 - As a search or AI crawler, I receive the separate crawler variant with accurate paywall structured data. The editor's content assignments must remain compatible with identifying the gated portions in that markup.
 
 ## Server-Side Rendering

@@ -184,7 +184,7 @@ Nothing leaks and no cached copy is wrong; the fix is one declaration.
 
 Segments `subscriber`, `newsletter`, and `donor`. The reader is in `subscriber` and `newsletter`. `/article-1/` has one Group gated on `subscriber` and declares nothing else.
 
-**Phase 1, client request, before lookup.** The worker reads the cookie, giving `{newsletter=1, subscriber=1}`, adds any edge-written values (`crawler`, `meter`), and reads the KV record for the URL.
+**Phase 1, client request, before lookup.** The worker reads the cookie, giving `{newsletter=1, subscriber=1}`, adds any crawler value it classifies for this request, and reads the KV record for the URL. Meter states are already cookie values and need no work here.
 
 - No record: pass the full value through. This is today's full-cookie keying and is safe.
 - Record `[subscriber]`: rewrite the header to the reader's values for those keys only, in `Vary_Cache` serialization.
@@ -220,9 +220,11 @@ A subscriber's render of `/article-1/` reads only `subscriber`. A non-subscriber
 
 No edge-side TTL is needed for correctness or responsiveness. If VIP's KV requires one, it must be long and is a storage detail.
 
+Edge KV is not durable. A record can be evicted at any time. That is safe: a missing record means the lookup uses the full cookie value, which is today's keying, and the next miss relearns the record from the declared header. The cost of an eviction is one extra miss per URL per edge location, not a leak. The frequency of eviction decides how much narrowing is lost in practice and is an open question for VIP.
+
 ### Variant bound
 
-Stored copies per URL are bounded by the product of value counts over the declared set: `2^k` for `k` boolean segments, times the step count for `meter`. Never by the number of configured segments. A page that declares nothing has one copy.
+Stored copies per URL are bounded by the product of value counts over the declared set: `2^k` for `k` boolean segments, times four for each meter segment (`open`, `last`, `wall`, none). Never by the number of configured segments. A page that declares nothing has one copy.
 
 ### Encrypted mode
 
@@ -240,9 +242,104 @@ In `vip-go-auth` mode the worker must read the decrypted groups and rewrite `X-V
 
 1. Can a phase 1 worker rewrite `X-VIP-Go-Segmentation` (or the cookie the edge derives it from), and does the cache then key on the rewritten value?
 2. Can a phase 3 worker add `Cache-Control: no-store` to an origin response so the cache does not store it?
-3. What are KV read latency in phase 1 and write visibility across edge locations?
+3. What are KV read latency in phase 1, write visibility across edge locations, and the typical eviction rate? KV is known to be non-durable.
 4. Can origin write to edge KV, so the record is pushed at save time?
 5. Can a worker read and rewrite decrypted groups in encrypted mode?
 6. What is the cap on stored variants per URL?
 
 These questions do not block development but must be answered once a prototype is deployed to WPVIP.
+
+## Anonymous metering
+
+A meter grants an anonymous reader a limited number of articles per period and then shows the gate. The design keeps all meter state in the reader's cookies, keeps all meter configuration at origin, and gives the Edge Worker nothing to store. The worker advances the meter on cache hits as well as misses.
+
+### Principle
+
+1. **A meter is a segment.** A meter segment is a custom post type record like any other, with two extra fields: a limit (articles per period) and a period. Editors gate content on it exactly like a boolean segment, and it enters the declared set the same way. A Group gated on "subscriber, metered-articles" shows to subscribers and to anonymous readers with allowance left, through the normal OR semantics.
+2. **Origin announces, the edge counts.** Every response whose declared set contains a meter segment carries a response header naming the meter and its settings. The header is stored with the cached copy, and the worker can read it on a hit or a miss. Origin never sees a count.
+3. **State is computed after the view, for the next request.** In phase 4 the worker counts the view and writes the resulting state into `vip-go-seg` as the meter segment's value. Phase 1 has nothing to derive: the value is in the cookie like any other segment, so narrowing and lookup are unchanged.
+
+### Configuration
+
+The meter segment record holds:
+
+| Field | Meaning | Example |
+| --- | --- | --- |
+| Limit | Articles a reader may open per period | `5` |
+| Period | Length of the period, stored in seconds, entered in days | `2592000` (30 days) |
+
+Nothing is configured at the edge. A site can have several meters, for example `metered-articles` and `metered-videos`, each with its own limit and period. Meter names are site-defined keys and follow the normal naming and multisite rules.
+
+### The meter header
+
+Origin sends, on every response whose declared set contains a meter segment:
+
+```
+X-WPVIP-Content-Gates-Meter: metered-articles; id=123; limit=5; period=2592000
+```
+
+`id` is the post ID that this view counts against, so two URLs for one post count once. If the declared set contains more than one meter segment, origin repeats the header once per meter. The header is omitted when no meter segment is declared, so the worker does no meter work on un-metered responses.
+
+### Meter states
+
+The segment value is one of three states. The worker chooses it from the remaining allowance after counting the current view.
+
+| Remaining after this view | Value written | `is_reader_in_segment()` |
+| --- | --- | --- |
+| More than one | `open` | `true` |
+| Exactly one | `last` | `true` |
+| None | `wall` | `false` |
+| No cookie yet | no value | `false` |
+
+`get_reader_segment_value()` returns the state, so a template can show "one article left" on `last`. Three states cost three variants per metered URL regardless of the limit; the count itself never reaches the cache key.
+
+### Cookies
+
+Two cookies carry the meter:
+
+- **`vip-go-seg`** carries only the state, as `metered-articles_--_open`, in `Vary_Cache` format. Origin and the cache key see this and nothing else.
+- **`vip-go-meter`** is private to the worker. For each meter it holds the period start, the count, and a short list of hashed post IDs already counted. The worker signs the whole value with a secret it holds, so a forged or edited cookie fails verification and is treated as absent. Size is about four bytes per counted article plus a fixed header, so a meter of ten costs under 100 bytes.
+
+### Request flow
+
+Reader opens `/article-7/`, post ID 123, gated on "subscriber, metered-articles". Limit 5, and the reader has counted three articles this period, so the cookie carries `metered-articles_--_open`.
+
+**Phase 1.** The worker narrows the segmentation header to the URL's declared set as usual. The meter state is already a cookie value, so it is handled like any other segment. Cache lookup proceeds with `metered-articles_--_open` in the key.
+
+**Phase 4, on the hit or miss.** The worker reads the meter header from the response and, in this order:
+
+1. Verifies `vip-go-meter`. A missing or invalid cookie starts a fresh record with count zero.
+2. Resets the record if the period has elapsed: count zero, empty seen list, new period start.
+3. Counts the view only if the state used for the lookup was `open` or `last` (content was delivered) and post 123 is not in the seen list. The count becomes four and 123 is added.
+4. Computes the next state. Remaining is one, so the state is `last`.
+5. Writes both cookies: the signed `vip-go-meter`, and `vip-go-seg` with `metered-articles_--_last` merged into the reader's other groups in `Vary_Cache` serialization.
+
+The reader's next metered view is keyed on `last`, is counted as the fifth, and leaves them at `wall`. At `wall` the Group is withheld, views are not counted, and the state stays `wall` until the period resets.
+
+**First visit.** A reader with no cookie has no meter value, so the Group is withheld and the response is the anonymous copy. The worker writes a fresh record with state `open`. The next metered view delivers content. This is the decided first-visit trade-off: the first free article needs one round trip, so a client that refuses cookies cannot obtain free articles by refusing them.
+
+### Change propagation
+
+| Event | What happens | Window |
+| --- | --- | --- |
+| Editor gates or un-gates a post on a meter | Post save purges the URL's variants. The next miss sends or omits the meter header. | One round trip |
+| Admin changes a meter's limit or period | Cached copies keep the old header until purged. The spec already requires a global purge for segment configuration changes; this falls under that rule. | Until purge |
+| Period elapses | The worker resets the record on the reader's next metered view. | Next view |
+| Meter segment deactivated | It leaves every declared set, so origin stops sending the header and reads return `false`. Stale cookie values are ignored. | Global purge |
+
+### Accepted limits
+
+- **Deleting the cookie** returns the reader to the no-cookie state, which gets the gate. Two reloads after a delete produce a fresh allowance. No design without server-side identity can close this, and metering is a soft gate by nature. The hard gate is the subscriber segment.
+- **Forging** fails the signature. **Copying** a cookie to another client can be caught by binding the signature to a client fingerprint such as JA3, if the worker can read one. Fingerprints are not reader identities and are never used to count.
+- **Subscribers are counted too.** The worker does not know gating semantics, so a subscriber's views advance their meter. It has no effect while they are subscribed and is harmless after.
+
+### Why not a server-side count
+
+Edge KV is not durable, so it cannot hold the count. Origin cannot hold it because hits never reach origin. A client fingerprint such as JA3 is shared by every client with the same TLS configuration, so even a durable store keyed on it would count one reader's views against many others. The only identity stronger than a cookie is a login, and logged-in readers belong to the entitlement provider.
+
+### Platform questions
+
+1. Can the worker hold a signing secret, for example from an environment variable or compiled in at deploy?
+2. Is JA3 or JA4 exposed to the worker as a request attribute, for cookie binding?
+3. Does `Vary_Cache` at origin re-serialize groups it did not register, so the meter value survives a miss? The source suggests yes; it needs a regression test on the VIP test application.
+

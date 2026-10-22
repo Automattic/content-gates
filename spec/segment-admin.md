@@ -15,10 +15,10 @@ The product must be described as a gating primitive that needs an entitlement pr
 | Template access | Public `is_reader_in_segment( $segment_id )` check usable in headers, footers, shortcodes, and widgets, without visual template-part controls. |
 | Provider integration | Documented, versioned server- and client-side membership assignment contract; a worked Newspack `register_rule()` bridge is the only shipped first-party adapter. |
 | Cache personalization | One `Vary_Cache` group per segment, with safe response variants and measured hit rate. Responses are keyed on the segments each URL declares before `send_headers`, narrowed by an Edge Worker; see [page-cache.md](page-cache.md). |
-| Anonymous metering | VIP Edge Worker advances the `anon` / `m1` / `m2` / `m3` / `wall` sequence, including cache hits. Preserve configurable free-article count and reset period; no general eligibility-rule UI is implied. |
+| Anonymous metering | A VIP Edge Worker advances each meter segment's `open` / `last` / `wall` state on every metered view, including cache hits, from the limit and period on the meter segment record. See the metering section of [page-cache.md](page-cache.md). No general eligibility-rule UI is implied. |
 | Crawler classification | Search and AI crawlers receive a distinct edge-selected segment and accurate Google paywall structured data using `isAccessibleForFree` and `hasPart` with `cssSelector`. |
 
-Metering is a project deliverable even though stepped-segment API details are future work in the current API draft. A final metering design and its integration evidence are still required; the simple segment admin does not provide per-segment meter configuration.
+Metering is a project deliverable. The design is in [page-cache.md](page-cache.md); integration evidence on a VIP test application is still required. A meter segment's limit and period are configured on its segment record.
 
 ## Use Cases
 
@@ -27,7 +27,7 @@ Metering is a project deliverable even though stepped-segment API details are fu
 - As a publisher, I can reopen the list editor and see the saved segment names and statuses. Adding, deactivating, reactivating, or reconfiguring a segment must account for affected content and cache variants; an ordinary content-edit purge alone is insufficient for a site-wide configuration change.
 - As a publisher using Newspack, I can connect its eligibility decisions through the supplied `register_rule()` bridge. The bridge assigns membership; this primitive then makes that membership available to restriction checks and cache personalization.
 - As a publisher using another entitlement provider, I can have that provider assign a reader to a configured segment through the documented, versioned server- or client-side contract. Other providers use this contract rather than requiring a first-party adapter or a new eligibility engine in the admin UI.
-- As a publisher metering anonymous readers, I can use Newspack's existing free-article count and reset-period settings. A VIP Edge Worker maintains and advances the `anon` / `m1` / `m2` / `m3` / `wall` states even on cache hits, which never execute PHP.
+- As a publisher metering anonymous readers, I can use Newspack's existing free-article count and reset-period settings. A VIP Edge Worker maintains and advances the `open` / `last` / `wall` meter state even on cache hits, which never execute PHP.
 - As a publisher, I have a separate crawler/bot segment, classified through the edge-worker mechanism. Its rendered view includes the required paywall structured data. This and anonymous metering are the only membership decisions this project makes itself.
 - As a template developer, I can check membership with the documented public PHP call `is_reader_in_segment( $segment_id )` in a header, footer, shortcode, or widget without using an editor control.
 
@@ -71,7 +71,7 @@ Technical completion means the project deliverables run on a VIP test applicatio
 
 ## Temporary No-Go
 
-- Complex gate/segment configuration is deferred. For now, each segment is a custom post type record with a name, stable ID, and active/inactive status. Do not add per-segment content/access rules, priority, layouts, or metering settings to this list editor. Provider integration and edge metering remain separate concerns.
+- Complex gate/segment configuration is deferred. For now, each segment is a custom post type record with a name, stable ID, and active/inactive status. Do not add per-segment content/access rules, priority, or layouts to this list editor. A meter segment's limit and period are the only per-segment settings. Provider integration and edge metering remain separate concerns.
 - Do not build evaluation of identity-based eligibility rules into this primitive: subscription status, one-time purchases, email domains, reader data, institutional access, and IP-based access belong to the entitlement provider. Anonymous metering and crawler classification are the explicit exceptions for this slice.
 - Do not ship first-party adapters for Passport or other providers beyond the Newspack `register_rule()` bridge. They can integrate through the public assignment contract.
 - A fill endpoint and fragment hydration are separate work. Membership assigned after the default render must not imply that withheld content can be restored in that same response.
