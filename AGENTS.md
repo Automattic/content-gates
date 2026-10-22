@@ -4,7 +4,7 @@ Operational guide for working in this repo. Read this first.
 
 ## Purpose and specification
 
-`content-gates` is a WordPress plugin for cache-aware content gating on WPVIP. Integrate with WPVIP's cache personalization API (and potentially edge workers). External providers own entitlement decisions and are outside this plugin's scope, but this plugin must provide a way to integrate with them.
+`content-gates` is a WordPress plugin for cache-aware content gating on WPVIP. Integrate with WPVIP's cache personalization API and Edge Workers. External providers own entitlement decisions and are outside this plugin's scope, but this plugin must provide a way to integrate with them.
 
 Product decisions, discovery evidence, and specification lives in `spec/`.
 
@@ -20,8 +20,8 @@ Product decisions, discovery evidence, and specification lives in `spec/`.
 Tooling, all pinned in `composer.json` / `package.json`:
 
 - PHPCS with `WordPress-Extra`, `WordPress-Docs`, and `WordPress-VIP-Go`
-  (`phpcs.xml.dist`). Prefixes: `ContentGates`, `content_gates`,
-  `CONTENT_GATES`. Text domain: `content-gates`.
+  (`phpcs.xml.dist`). Prefixes: `Automattic\VIP\ContentGates`,
+  `content_gates`, `CONTENT_GATES`. Text domain: `content-gates`.
 - PHPStan level 8 with the WordPress extension and test stubs
   (`phpstan.neon.dist`).
 - PHPUnit 9.6 + Yoast polyfills, run against the WordPress test library
@@ -30,8 +30,10 @@ Tooling, all pinned in `composer.json` / `package.json`:
   Playwright with `@wordpress/e2e-test-utils-playwright`
   (`playwright.config.ts`).
 
+Support floor: WordPress 7.0+, PHP 8.2+, Node 20+ (`.nvmrc` pins 24).
+wp-env runs PHP 8.3 and latest WordPress core. See `spec/decisions.md`.
+
 ```bash
-npm run build		  # build client-side assets (none yet)
 npm run lint          # lint:php + analyze:php + lint:js
 npm run lint:php      # composer lint   (PHPCS)
 npm run analyze:php   # composer analyze (PHPStan)
@@ -39,8 +41,11 @@ npm run lint:js       # wp-scripts lint-js
 composer lint:fix     # PHPCBF
 ```
 
+No build step exists yet. Client-side code will live in `src/` and build
+with `wp-scripts build` once the editor UI is scaffolded (TODO).
+
 Class autoloading follows WordPress file naming:
-`ContentGates\Providers\Static_Provider` lives at
+`Automattic\VIP\ContentGates\Providers\Static_Provider` lives at
 `inc/providers/class-static-provider.php` (see `autoload()` in
 `content-gates.php`). Tests use the core `test-*.php` convention.
 
@@ -80,7 +85,7 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `docs/`: docs for human users, including the public hook reference
 - `inc/`: server PHP (`class-plugin.php` wires components to hooks)
 - `spec/`: product specification
-- `src/`: browser code (TypeScript)
+- `src/`: browser code (TypeScript; not scaffolded yet)
 - `tests/`: ALL tests, fixtures, and test tooling
   - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `test-*.php`)
   - `tests/e2e/`: Playwright specs and `global-setup.ts`
@@ -190,8 +195,8 @@ Each of these has bitten. Don't rediscover them.
 - **ESLint is flat config.** `@wordpress/scripts` 36 ships
   `eslint.config.cjs`; a legacy `.eslintrc` is ignored. Scripts in `bin/`
   need `/* eslint-disable no-console */` to print.
-- **`composer.lock` must resolve on PHP 8.1, not the host's PHP.**
-  `composer.json` pins `config.platform.php` to `8.1.0` so a newer host
+- **`composer.lock` must resolve on PHP 8.2, not the host's PHP.**
+  `composer.json` pins `config.platform.php` to `8.2.0` so a newer host
   cannot lock a package that CI (8.3) or the wp-env container (8.3) cannot
   install. Never remove the pin to make a local `composer update` pass.
 - **`WP_TESTS_DIR` is only set inside wp-env.** Running `vendor/bin/phpunit`

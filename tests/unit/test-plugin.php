@@ -7,9 +7,9 @@
 
 declare( strict_types=1 );
 
-namespace ContentGates\Tests\Unit;
+namespace Automattic\VIP\ContentGates\Tests\Unit;
 
-use ContentGates\Plugin;
+use Automattic\VIP\ContentGates\Plugin;
 use WP_UnitTestCase;
 
 /**

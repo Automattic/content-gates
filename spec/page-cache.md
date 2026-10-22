@@ -49,7 +49,7 @@ For each request the plugin builds the initial declared set at `send_headers`, a
 
 | Request | Content contribution |
 | --- | --- |
-| Singular post or page | Every segment assigned to any Group in the post content, nested or not, read from the saved block attributes. Computed at save time and stored in post meta so no parse runs per request. |
+| Singular post or page | Every segment assigned to any Group in the post content, nested or not, read from the saved block attributes. Computed at save time and stored in post meta so no parse runs per request. Assignments to inactive segments are dropped. |
 | Feed, oEmbed, embed | The union over the posts the feed or embed renders. |
 | REST response with rendered content | The union over the posts in the response, computed in `rest_pre_serve_request` before the JSON is sent. |
 | Archive, search, home | Nothing from content. Teasers never read segments (decided). |
@@ -60,7 +60,7 @@ Reads that are not block assignments are added by the site through the declarati
 X-WPVIP-Content-Gates-Declared: donor, subscriber
 ```
 
-A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's `send_headers` callback (an early exit before `send_headers`) sends no header; the worker treats that as unknown.
+The header carries `Vary_Cache` group names: the segment keys on a single site, and `{blog_id}-{key}` on multisite (see [decisions.md](decisions.md)). Inactive segments are never included. A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's `send_headers` callback (an early exit before `send_headers`) sends no header. Such a response also lacks the `Vary` header that `Vary_Cache` sends at the same hook, so the worker caches it as unsegmented. A response with the `Vary` header but no declared header is treated as unknown and not stored.
 
 ### Declaration API
 
@@ -81,7 +81,7 @@ add_filter( 'content_gates_declared_segments', function ( array $segments, \WP_Q
 }, 10, 2 );
 ```
 
-Errors: `content_gates_too_late`, `content_gates_invalid_segment`, `content_gates_inactive_segment` (declaring an inactive segment is allowed and recorded; reads of it still return `false`).
+Errors: `content_gates_too_late`, `content_gates_invalid_segment`, `content_gates_inactive_segment`. Inactive segments are never declared, so a read of one fails closed and the segment costs no variants.
 
 Declaring is free at origin and costs variants at the edge: every declared segment doubles the possible copies of that URL. Declare on the requests that will read, not site-wide, unless the read really happens site-wide.
 
@@ -197,9 +197,9 @@ X-VIP-Go-Segmentation: vc-v1__subscriber_--_1
 
 The cache key is `/article-1/` plus `vc-v1__subscriber_--_1`. A subscriber who is not on the newsletter shares the copy. A reader in none of the recorded segments produces an empty header and shares the anonymous copy.
 
-**Phase 3, origin response, on a miss.** The worker reads `X-Content-Gates-Declared` and, in this order:
+**Phase 3, origin response, on a miss.** The worker reads `X-WPVIP-Content-Gates-Declared` and, in this order:
 
-1. **Coverage check.** Every declared key must have been present in the narrowed lookup value. If any was narrowed away, or the header is missing, the worker sets `Cache-Control: no-store` so the cache does not store the response under a key that is too narrow. If the lookup used the full value because no record existed, the response is covered.
+1. **Coverage check.** The check applies only to responses that carry `Vary: X-VIP-Go-Segmentation`. A response without that header is not segmented, so a missing declared header is not an error and the response is cached as usual. When the `Vary` header is present, every declared key must have been present in the narrowed lookup value. If any was narrowed away, or the declared header is missing, the worker sets `Cache-Control: no-store` so the cache does not store the response under a key that is too narrow. If the lookup used the full value because no record existed, the response is covered.
 2. **Record update.** The worker replaces the KV record with the declared set. Replacement, not merge, so the record shrinks when an editor removes a segment and grows when one is added.
 
 Both steps use headers only. The worker never inspects the body.

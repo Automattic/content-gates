@@ -7,7 +7,7 @@
 
 declare( strict_types=1 );
 
-namespace ContentGates;
+namespace Automattic\VIP\ContentGates;
 
 /**
  * Wires plugin components to WordPress hooks.

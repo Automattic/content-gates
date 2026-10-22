@@ -19,6 +19,6 @@ should hook here to register themselves.
 
 | Argument | Type | Description |
 |---|---|---|
-| `$plugin` | `ContentGates\Plugin` | The plugin instance. |
+| `$plugin` | `Automattic\VIP\ContentGates\Plugin` | The plugin instance. |
 
 Since 0.1.0.

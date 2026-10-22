@@ -10,11 +10,11 @@ The product must be described as a gating primitive that needs an entitlement pr
 
 | Deliverable | Required result |
 | --- | --- |
-| Segment administration | Simple custom post type records with name, stable ID, and active/inactive status, managed at Settings → Content Gates. Deactivation replaces deletion. |
-| Editor assignment | One active-segment dropdown on Group blocks, with server-side withholding of the Group's contents. See Editor UI for the full rendering contract. |
+| Segment administration | Simple custom post type records with display name, immutable key, and active/inactive status, managed at Settings → Content Gates. Deactivation replaces deletion. |
+| Editor assignment | A segment picker on Group blocks (one or more active segments, with an in/not-in toggle) and server-side withholding of the Group's contents. See Editor UI for the full rendering contract. |
 | Template access | Public `is_reader_in_segment( $segment_id )` check usable in headers, footers, shortcodes, and widgets, without visual template-part controls. |
 | Provider integration | Documented, versioned server- and client-side membership assignment contract; a worked Newspack `register_rule()` bridge is the only shipped first-party adapter. |
-| Cache personalization | One `Vary_Cache` group per segment, with safe response variants and measured hit rate. The API spec refines the original full-cookie proposal to key on the segments each response consulted. |
+| Cache personalization | One `Vary_Cache` group per segment, with safe response variants and measured hit rate. Responses are keyed on the segments each URL declares before `send_headers`, narrowed by an Edge Worker; see [page-cache.md](page-cache.md). |
 | Anonymous metering | VIP Edge Worker advances the `anon` / `m1` / `m2` / `m3` / `wall` sequence, including cache hits. Preserve configurable free-article count and reset period; no general eligibility-rule UI is implied. |
 | Crawler classification | Search and AI crawlers receive a distinct edge-selected segment and accurate Google paywall structured data using `isAccessibleForFree` and `hasPart` with `cssSelector`. |
 
@@ -22,7 +22,7 @@ Metering is a project deliverable even though stepped-segment API details are fu
 
 ## Use Cases
 
-- As a publisher, I can open **Settings → Content Gates** in `wp-admin` to view segments, create a segment, edit its name, and see or change its active/inactive status. The site's active segments appear by name in the **Segment** dropdown in Group block settings, with their post IDs used for assignments.
+- As a publisher, I can open **Settings → Content Gates** in `wp-admin` to view segments, create a segment, edit its name, and see or change its active/inactive status. The site's active segments appear by name in the **Segments** control in Group block settings, with their keys used for assignments.
 - As a publisher, I can deactivate a segment without losing its identity or existing content references, and reactivate the same segment later. Deactivated segments remain visible in the admin list with their status; there is no delete action.
 - As a publisher, I can reopen the list editor and see the saved segment names and statuses. Adding, deactivating, reactivating, or reconfiguring a segment must account for affected content and cache variants; an ordinary content-edit purge alone is insufficient for a site-wide configuration change.
 - As a publisher using Newspack, I can connect its eligibility decisions through the supplied `register_rule()` bridge. The bridge assigns membership; this primitive then makes that membership available to restriction checks and cache personalization.
@@ -36,16 +36,16 @@ Metering is a project deliverable even though stepped-segment API details are fu
 ### Admin behavior and dependency isolation
 
 - On a VIP test application, verify that the **Settings** menu contains a **Content Gates** submenu item and that it opens a page titled **Content Gates** with the segment list editor. Create a segment, edit its name, and change its status. Verify that each segment is a custom post type record and that reopening the page loads its saved name and status.
-- Confirm that renaming, deactivating, and reactivating a segment retain the same post ID and existing Group block assignments. The Group block's **Segment** dropdown offers active segments from the current site. Inactive segments remain identifiable in existing assignments, are marked inactive, and are excluded from new assignment choices.
+- Confirm that renaming, deactivating, and reactivating a segment retain the same key and existing Group block assignments. The Group block's **Segments** control offers active segments from the current site. Inactive segments remain identifiable in existing assignments, are marked inactive, and are excluded from new assignment choices.
 - Verify that segments cannot be trashed or permanently deleted, including unreferenced segments. Omit individual and bulk trash/delete actions and reject deletion through supported server-side paths, including REST and standard WordPress post deletion functions; hiding an action alone is insufficient.
-- Confirm that the editor and membership/cache integration read the saved segment records by ID. Reopening the admin and editor must preserve existing content-to-segment references when unrelated list entries change.
+- Confirm that the editor and membership/cache integration read the saved segment records by key. Reopening the admin and editor must preserve existing content-to-segment references when unrelated list entries change.
 - Demonstrate that the custom post type segment admin functions without Reader Activation or WooCommerce. Verify content assignment, any reused `Content_Gate` / `Block_Visibility` / `Access_Rules` restriction checks, and metering settings with those dependencies absent or stubbed out; compatibility of reused Newspack components remains a discovery requirement. The original gate-builder UI is replaced by this simple admin and is not a release dependency.
 
 ### Membership and cache integration
 
-- Document and version the assignment API's signature, return value, cookie-setting mechanism, and deprecation policy. Verify server- and client-side assignment, the worked Newspack `register_rule()` bridge, and a real MCP-style assignment action that takes effect on a later request. The exact contract remains a discovery decision; this spec does not prescribe an endpoint path or payload.
+- Document and version the assignment API's signature, return value, cookie-setting mechanism, and deprecation policy. Verify server- and client-side assignment, the worked Newspack `register_rule()` bridge, and a real MCP-style assignment action that takes effect on a later request. The contract is specified in [api.md](api.md). The plugin ships no membership HTTP route; providers that need one write their own (see [decisions.md](decisions.md)).
 - Verify that `is_reader_in_segment( $segment_id )` reports the membership used for content restriction, including outside post rendering in template code.
-- Register each segment as its own `Vary_Cache` group. Readers may belong to multiple segments; each response is keyed on membership values for the segments it consulted, as specified by the API wrapper, rather than on one mutually exclusive tier or the entire cookie. Prove that registration and cookie-writing assignment occur before `send_headers` on every path that calls them; late calls are a feasibility blocker. Report the consulted set after rendering, including failed membership checks.
+- Register each segment as its own `Vary_Cache` group. Readers may belong to multiple segments; each response is keyed on membership values for the segments the URL declares before `send_headers`, as specified in [page-cache.md](page-cache.md), rather than on one mutually exclusive tier or the entire cookie. Prove that registration and cookie-writing assignment occur before `send_headers` on every path that calls them; late calls are a feasibility blocker. Send the declared set with the response; reads outside the declared set must fail closed.
 - Exercise anonymous metering through the configured allowance and reset period on warm cache hits as well as cold responses. Verify the accepted first-visit trade-off: a round trip is required before metered access is granted, and refusing cookies cannot repeatedly obtain a free first article.
 - Verify the separate crawler variant, accurate `isAccessibleForFree` and `hasPart` / `cssSelector` markup, and Google's Rich Results Test acceptance. Document that user-agent classification can be spoofed and an unrecognized crawler receives the stripped anonymous view.
 - For segment additions, deactivation, reactivation, reconfiguration, and provider rule changes, identify all affected URLs and purge every segmented and metered variant. Reproduce the behavior on live traffic in a VIP test application and inspect the first cold-cache response after purging, as well as subsequent hits. Deactivating a segment must not leave stale entitled content in cache.
@@ -76,7 +76,7 @@ Technical completion means the project deliverables run on a VIP test applicatio
 - Do not ship first-party adapters for Passport or other providers beyond the Newspack `register_rule()` bridge. They can integrate through the public assignment contract.
 - A fill endpoint and fragment hydration are separate work. Membership assigned after the default render must not imply that withheld content can be restored in that same response.
 - Subscription management, billing, payments, promotions, and analytics are not supplied by this primitive; those capabilities require WooCommerce and WooPayments in the described monetization stack. Content gifting, premium newsletters, group subscriptions, and identity/registration/verification changes are also outside this slice.
-- Do not invent a segment cap, new eligibility-rule UI, cookie/API format, or cache-purge mechanism to close an unanswered discovery question. Validate the integration and document the chosen behavior first.
+- Do not invent a segment cap, new eligibility-rule UI, or cache-purge mechanism to close an unanswered discovery question. The cookie stays in `Vary_Cache` format. Validate the integration and document the chosen behavior first.
 
 ## Permanent No-Go
 
