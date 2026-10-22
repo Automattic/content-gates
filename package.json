@@ -5,23 +5,33 @@
 	"private": true,
 	"license": "GPL-2.0-or-later",
 	"engines": {
-		"node": ">=20"
+		"node": ">=22"
 	},
 	"scripts": {
 		"doctor": "node bin/doctor.mjs",
+		"setup": "npm run build && npm run env start && npm run seed",
 		"env": "wp-env",
 		"env:tests": "wp-env --config=.wp-env.tests.json",
+		"seed": "wp-env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates-dev seed",
+		"build": "wp-scripts build",
+		"start": "wp-scripts start",
 		"lint": "npm run lint:php && npm run analyze:php && npm run lint:js",
 		"lint:js": "wp-scripts lint-js",
 		"lint:php": "composer lint",
 		"analyze:php": "composer analyze",
+		"edge:build": "node edge/build.mjs",
+		"edge:sim": "node edge/sim/cli.ts",
 		"test:php": "wp-env --config=.wp-env.tests.json run cli --env-cwd=wp-content/plugins/content-gates vendor/bin/phpunit",
+		"test:edge": "node --test edge/tests/",
 		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
+		"@automattic/vip-edge-workers-sdk": "^0.7.1",
 		"@playwright/test": "^1.64.1",
 		"@wordpress/e2e-test-utils-playwright": "^3.0.0",
 		"@wordpress/env": "^11.17.0",
-		"@wordpress/scripts": "^36.1.0"
+		"@wordpress/scripts": "^36.1.0",
+		"assemblyscript": "^0.27.37",
+		"typescript": "^5.9.3"
 	}
 }
