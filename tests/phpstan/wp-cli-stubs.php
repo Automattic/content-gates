@@ -31,6 +31,15 @@ namespace {
 		}
 
 		public static function warning( string $message ): void {}
+
+		/**
+		 * @param string              $command
+		 * @param array<string, mixed> $options
+		 * @return mixed
+		 */
+		public static function runcommand( $command, $options = array() ) {
+			return null;
+		}
 	}
 }
 
