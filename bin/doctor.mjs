@@ -153,9 +153,9 @@ function dockerContainers() {
 console.log( 'Toolchain' );
 const nodeMajor = Number( process.versions.node.split( '.' )[ 0 ] );
 check(
-	nodeMajor >= 20,
+	nodeMajor >= 22,
 	`node ${ process.versions.node }`,
-	`node ${ process.versions.node } (need >= 20)`
+	`node ${ process.versions.node } (need >= 22 for the edge simulator and its tests)`
 );
 const php = run( 'php', [ '-r', 'echo PHP_VERSION;' ] );
 check(
@@ -191,6 +191,12 @@ check(
 	'node_modules/ present',
 	'node_modules/ missing (run npm install)'
 );
+check(
+	existsSync( path.join( ROOT, 'build/index.asset.php' ) ),
+	'build/ present (editor Segments control)',
+	'build/ missing: Group blocks have no Segments control (run npm run build)',
+	false
+);
 
 console.log( '\nwp-env instances' );
 const containers = dockerContainers();
@@ -224,6 +230,15 @@ for ( const { label, port } of PORTS ) {
 			`:${ port } is held by something else. Playwright would silently reuse it.`
 		);
 	}
+}
+
+console.log( '\nEdge simulator' );
+if ( await portInUse( 8890 ) ) {
+	ok( ':8890 answers (npm run edge:sim, or something else)' );
+} else {
+	console.log(
+		'  off   not running; `npm run edge:sim` puts it in front of the dev site on :8890'
+	);
 }
 
 console.log( '\nPlaywright' );
