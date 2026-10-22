@@ -4,6 +4,12 @@ parameters:
 		- content-gates.php
 		- inc
 		- tests/unit
+		- tests/fixtures
+	excludePaths:
+		# Verbatim upstream copy of WPVIP's Vary_Cache; analyzed as a scanned file only.
+		- inc/platform/vendor/class-vary-cache.php
 	scanFiles:
 		- vendor/php-stubs/wordpress-tests-stubs/wordpress-tests-stubs.php
+		- tests/phpstan/wp-cli-stubs.php
+		- inc/platform/vendor/class-vary-cache.php
 	treatPhpDocTypesAsCertain: false
