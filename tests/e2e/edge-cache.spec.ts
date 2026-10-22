@@ -66,7 +66,7 @@ test.describe( 'edge simulator', () => {
 		const newsletter = await via( { newsletter: '1' } );
 		const shared = await newsletter.get( SEED.gatedArticle );
 		expect( shared.headers()[ 'x-edge-sim' ] ).toBe( 'HIT' );
-		expect( shared.headers()[ 'x-edge-sim-key' ] ).toBe( '' );
+		expect( shared.headers()[ 'x-edge-sim-key' ] ).toBe( '-' );
 		await newsletter.dispose();
 
 		// A subscriber gets a separate copy, keyed on subscriber only.
@@ -100,7 +100,7 @@ test.describe( 'edge simulator', () => {
 		// value; the record is now empty and every later reader narrows to ''.
 		const anon = await via();
 		const miss = await anon.get( SEED.publicPost );
-		expect( miss.headers()[ 'x-edge-sim-key' ] ).toBe( '' );
+		expect( miss.headers()[ 'x-edge-sim-key' ] ).toBe( '-' );
 		await anon.dispose();
 
 		const donor = await via( { donor: '1' } );
@@ -124,7 +124,7 @@ test.describe( 'edge simulator', () => {
 		// A browser claiming a crawler value in its cookie gains nothing.
 		const forged = await via( { 'crawlers-search': '1' } );
 		const forgedResponse = await forged.get( SEED.gatedArticle );
-		expect( forgedResponse.headers()[ 'x-edge-sim-key' ] ).toBe( '' );
+		expect( forgedResponse.headers()[ 'x-edge-sim-key' ] ).toBe( '-' );
 		expect( await forgedResponse.text() ).not.toContain(
 			SEED.subscriberOnly
 		);

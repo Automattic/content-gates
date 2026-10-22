@@ -1,0 +1,389 @@
+/**
+ * The worker's three phases as pure functions over plain inputs.
+ *
+ * index.ts (the real worker) and edge/sim/server.ts (the local simulator)
+ * both marshal headers into these inputs and apply the outputs, so the
+ * decision logic is written once and tested once. Nothing here touches
+ * the SDK, KV, or the network.
+ *
+ * Phases run in isolation on the platform: module state does not survive
+ * from one phase to the next. Phase 1 therefore records what later phases
+ * need in request headers (`x-wpvip-content-gates-*`), and phase 3 reads
+ * them back from the origin-socket request snapshot.
+ *
+ * Portability rules: see segmentation.ts.
+ */
+
+import { classifyCrawler, crawlerKeys, crawlerVersion } from './crawlers.ts';
+import { buildSetCookie, getCookie, withCookie } from './cookies.ts';
+import { Crypto } from './crypto.ts';
+import {
+	decodeRecord,
+	encodeRecord,
+	isCovered,
+	joinNames,
+	parseNameList,
+	sameNames,
+} from './declared.ts';
+import {
+	METER_COOKIE,
+	MeterRecord,
+	advanceMeter,
+	parseMeterCookie,
+	parseMeterHeader,
+	serializeMeterCookie,
+} from './meter.ts';
+import {
+	Groups,
+	narrowGroups,
+	parseSegmentation,
+	serializeSegmentation,
+	withoutGroups,
+} from './segmentation.ts';
+
+/** Browser cookie `Vary_Cache` reads and writes. */
+export const SEGMENT_COOKIE: string = 'vip-go-seg';
+
+/** Request header the cache keys on; the worker rewrites it in phase 1. */
+export const SEGMENTATION_HEADER: string = 'x-vip-go-segmentation';
+
+/** Request header carrying the worker's crawlers.json version to origin. */
+export const EDGE_VERSION_HEADER: string = 'x-wpvip-content-gates-edge';
+
+/** Phase 1 -> 3 marker: `full` or `narrowed`. */
+export const LOOKUP_HEADER: string = 'x-wpvip-content-gates-lookup';
+
+/** Phase 1 -> 3 marker: the record's keys phase 1 narrowed with. */
+export const RECORD_HEADER: string = 'x-wpvip-content-gates-record';
+
+/** Phase 1 -> 3 marker: the KV key for this URL. */
+export const KEY_HEADER: string = 'x-wpvip-content-gates-key';
+
+/** Phase 1 marker: crawler groups the worker classified, comma separated. */
+export const CRAWLER_HEADER: string = 'x-wpvip-content-gates-crawler';
+
+/** Response header origin sends with the declared set. */
+export const DECLARED_HEADER: string = 'x-wpvip-content-gates-declared';
+
+/** Response header origin sends once per meter segment in the declared set. */
+export const METER_HEADER: string = 'x-wpvip-content-gates-meter';
+
+export const LOOKUP_FULL: string = 'full';
+export const LOOKUP_NARROWED: string = 'narrowed';
+
+/**
+ * Lifetime of the `vip-go-seg` cookie the worker writes: one day, the
+ * plugin's default (`content_gates_cookie_lifetime`). The worker rewrites
+ * the whole cookie on every metered view, so a longer value here would
+ * extend every provider-assigned group past the lifetime the spec bounds
+ * a lapsed reader's entitled view with.
+ */
+export const SEGMENT_COOKIE_MAX_AGE: i32 = 86400;
+
+/**
+ * KV key for a URL: `cg:` plus the first 32 hex characters of
+ * sha256(path + query). Hashing keeps the key inside KV's 64-byte limit
+ * for any URL length.
+ *
+ * @param url    Origin-relative request target (path and query).
+ * @param crypto Hash provider.
+ * @return The KV key.
+ */
+export function kvKeyFor( url: string, crypto: Crypto ): string {
+	const hash = crypto.sha256Hex;
+	return 'cg:' + hash( url ).substring( 0, 32 );
+}
+
+/* ------------------------------------------------------------------------ */
+/* Phase 1: client request, before cache lookup                              */
+/* ------------------------------------------------------------------------ */
+
+export class ClientRequestInput {
+	url: string = '';
+	cookie: string | null = null;
+	userAgent: string | null = null;
+	/** Raw KV record for this URL, or null when none. */
+	record: string | null = null;
+}
+
+export class ClientRequestOutput {
+	/** Value for `X-VIP-Go-Segmentation`; may be empty. */
+	segmentation: string = '';
+	/** `full` or `narrowed`. */
+	lookup: string = LOOKUP_FULL;
+	/** Record keys in declared-header format; empty unless narrowed. */
+	recordKeys: string = '';
+	/** Rewritten `Cookie` header for origin; empty means delete it. */
+	cookie: string = '';
+	/** Crawler groups matched, comma separated; empty when none. */
+	crawler: string = '';
+	/** Value for `X-WPVIP-Content-Gates-Edge`. */
+	edgeVersion: string = '';
+	/** Decoded record keys, for diagnostics; null when no record. */
+	recordNames: string[] | null = null;
+}
+
+/**
+ * Phase 1 decision logic.
+ *
+ * Order matters and follows the spec: strip crawler groups a browser may
+ * have sent, classify the user agent, then narrow against the record.
+ * Classification before narrowing lets a crawler value enter the key when
+ * the URL declares it.
+ *
+ * @param input Request facts.
+ * @return What to set on the request.
+ */
+export function onClientRequestPure(
+	input: ClientRequestInput
+): ClientRequestOutput {
+	const out = new ClientRequestOutput();
+	out.edgeVersion = crawlerVersion();
+
+	// 1. The reader's groups, minus anything only the worker may set.
+	const fromCookie = parseSegmentation(
+		getCookie( input.cookie, SEGMENT_COOKIE )
+	);
+	const reader = withoutGroups( fromCookie, crawlerKeys() );
+
+	// 2. The worker's own classification.
+	const matched = classifyCrawler( input.userAgent );
+	for ( let i = 0; i < matched.length; i++ ) {
+		reader.set( matched[ i ], '1' );
+	}
+	out.crawler = matched.join( ',' );
+
+	// 3. Narrow when a record exists; otherwise today's full-value keying.
+	const record = decodeRecord( input.record );
+	if ( record === null ) {
+		out.segmentation = serializeSegmentation( reader );
+		out.lookup = LOOKUP_FULL;
+	} else {
+		out.segmentation = serializeSegmentation(
+			narrowGroups( reader, record )
+		);
+		out.lookup = LOOKUP_NARROWED;
+		out.recordKeys = joinNames( record );
+		out.recordNames = record;
+	}
+
+	// 4. The cookie origin sees: the reader's groups plus the worker's
+	//    classification, never a browser-supplied crawler value.
+	const forwarded = serializeSegmentation( reader );
+	out.cookie = withCookie(
+		input.cookie,
+		SEGMENT_COOKIE,
+		forwarded.length == 0 ? null : forwarded
+	);
+
+	return out;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Phase 3: origin response, on a cache miss                                 */
+/* ------------------------------------------------------------------------ */
+
+export class OriginResponseInput {
+	/** All `Vary` values joined with commas, or null. */
+	vary: string | null = null;
+	/** `X-WPVIP-Content-Gates-Declared`, or null when missing. */
+	declared: string | null = null;
+	/** `x-wpvip-content-gates-lookup` from the origin-socket request. */
+	lookup: string | null = null;
+	/** `x-wpvip-content-gates-record` from the origin-socket request. */
+	recordKeys: string | null = null;
+}
+
+export class OriginResponseOutput {
+	/** Whether to set `Cache-Control: no-store`. */
+	noStore: bool = false;
+	/** New KV record to write, or null to leave the record alone. */
+	record: string | null = null;
+	/** Why, for logs and the simulator. */
+	reason: string = '';
+}
+
+/**
+ * Whether a `Vary` value names the segmentation header.
+ *
+ * @param vary Joined `Vary` header values, or null.
+ * @return True when the response is segmented.
+ */
+export function variesOnSegmentation( vary: string | null ): bool {
+	if ( vary === null ) {
+		return false;
+	}
+	const fields = vary.split( ',' );
+	for ( let i = 0; i < fields.length; i++ ) {
+		if ( fields[ i ].trim().toLowerCase() == SEGMENTATION_HEADER ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Phase 3 decision logic: coverage check, then record update.
+ *
+ * @param input Response and request facts.
+ * @return What to do with the response and the record.
+ */
+export function onOriginResponsePure(
+	input: OriginResponseInput
+): OriginResponseOutput {
+	const out = new OriginResponseOutput();
+
+	// Not segmented: `Vary_Cache` never ran, so nothing to check or learn.
+	if ( ! variesOnSegmentation( input.vary ) ) {
+		out.reason = 'unsegmented';
+		return out;
+	}
+
+	// Segmented but undeclared: unknown reads, so never store it.
+	const declaredHeader = input.declared;
+	if ( declaredHeader === null ) {
+		out.noStore = true;
+		out.reason = 'undeclared';
+		return out;
+	}
+
+	const declared = parseNameList( declaredHeader );
+	const lookupFull = input.lookup === null || input.lookup == LOOKUP_FULL;
+	const recordHeader = input.recordKeys;
+	let recordKeys: string[] = [];
+	if ( recordHeader !== null ) {
+		recordKeys = parseNameList( recordHeader );
+	}
+
+	if ( ! isCovered( declared, lookupFull, recordKeys ) ) {
+		// The key this response would be stored under was narrowed with a
+		// record that lacks a declared group. Storing it would serve this
+		// render to readers who differ in that group.
+		out.noStore = true;
+		out.reason = 'narrowed-too-far';
+	} else {
+		out.reason = 'covered';
+	}
+
+	// Replace, never merge, so the record shrinks when an editor removes a
+	// segment. Skip the write when a narrowed lookup already used this set.
+	if ( lookupFull || ! sameNames( declared, recordKeys ) ) {
+		out.record = encodeRecord( declared );
+	}
+
+	return out;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Phase 4: client response, on every delivery                               */
+/* ------------------------------------------------------------------------ */
+
+export class ClientResponseInput {
+	/** Every `X-WPVIP-Content-Gates-Meter` value on the response. */
+	meterHeaders: string[] = [];
+	/** The client's `User-Agent`, or null. */
+	userAgent: string | null = null;
+	/** The client's raw `Cookie` header, or null. */
+	cookie: string | null = null;
+	/** Meter signing secret, or null when metering is disabled. */
+	secret: string | null = null;
+	/** Epoch seconds at delivery, or -1 when unknown. */
+	now: f64 = -1;
+}
+
+export class ClientResponseOutput {
+	/** `Set-Cookie` values to append, in order. */
+	setCookies: string[] = [];
+	/** Why nothing was written, when `setCookies` is empty. */
+	skipped: string = '';
+}
+
+/**
+ * Phase 4 decision logic: advance every announced meter and write both
+ * cookies, or do nothing.
+ *
+ * Does nothing for crawlers (they must never carry state), when no secret
+ * is configured (an unsigned cookie would be forgeable), and when the
+ * response date is unreadable (a period reset needs a clock).
+ *
+ * @param input  Response and request facts.
+ * @param crypto Hash provider.
+ * @return Cookies to set.
+ */
+export function onClientResponsePure(
+	input: ClientResponseInput,
+	crypto: Crypto
+): ClientResponseOutput {
+	const out = new ClientResponseOutput();
+
+	if ( input.meterHeaders.length == 0 ) {
+		out.skipped = 'unmetered';
+		return out;
+	}
+	if ( classifyCrawler( input.userAgent ).length > 0 ) {
+		out.skipped = 'crawler';
+		return out;
+	}
+	const secret = input.secret;
+	if ( secret === null || secret.length == 0 ) {
+		out.skipped = 'no-secret';
+		return out;
+	}
+	if ( input.now < 0 ) {
+		out.skipped = 'no-date';
+		return out;
+	}
+
+	const groups: Groups = withoutGroups(
+		parseSegmentation( getCookie( input.cookie, SEGMENT_COOKIE ) ),
+		crawlerKeys()
+	);
+	const records: MeterRecord[] = parseMeterCookie(
+		getCookie( input.cookie, METER_COOKIE ),
+		secret,
+		crypto
+	);
+
+	let maxPeriod: f64 = 0;
+	let advanced = 0;
+	for ( let i = 0; i < input.meterHeaders.length; i++ ) {
+		const spec = parseMeterHeader( input.meterHeaders[ i ] );
+		if ( spec === null ) {
+			continue;
+		}
+		const next = advanceMeter(
+			records,
+			spec,
+			groups.get( spec.group ),
+			input.now,
+			crypto
+		);
+		groups.set( spec.group, next );
+		if ( spec.period > maxPeriod ) {
+			maxPeriod = spec.period;
+		}
+		advanced++;
+	}
+	if ( advanced == 0 ) {
+		out.skipped = 'malformed-meter';
+		return out;
+	}
+
+	out.setCookies.push(
+		buildSetCookie(
+			METER_COOKIE,
+			serializeMeterCookie( records, secret, crypto ),
+			maxPeriod as i32,
+			true
+		)
+	);
+	out.setCookies.push(
+		buildSetCookie(
+			SEGMENT_COOKIE,
+			serializeSegmentation( groups ),
+			SEGMENT_COOKIE_MAX_AGE,
+			false
+		)
+	);
+	return out;
+}

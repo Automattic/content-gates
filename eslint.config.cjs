@@ -2,6 +2,7 @@
  * ESLint flat config: the `@wordpress/scripts` defaults plus project settings.
  */
 const wpConfig = require( '@wordpress/scripts/config/eslint.config.cjs' );
+const path = require( 'node:path' );
 
 /**
  * Packages WordPress serves as browser globals (`wp.*`, `ReactJSXRuntime`).
@@ -32,6 +33,42 @@ module.exports = [
 				'error',
 				{ allowedTextDomain: 'content-gates' },
 			],
+		},
+	},
+	{
+		// Everything under edge/ is build tooling for the Edge Worker: what
+		// ships to WPVIP is the compiled .wasm, so the SDK and AssemblyScript
+		// are devDependencies on purpose. `packageDir` points the rule at the
+		// root manifest because edge/package.json exists only to mark the
+		// directory as ES modules for Node.
+		files: [ 'edge/**/*.{ts,mjs}' ],
+		rules: {
+			'import/no-extraneous-dependencies': [
+				'error',
+				{
+					devDependencies: true,
+					peerDependencies: true,
+					includeTypes: true,
+					packageDir: path.resolve( __dirname ),
+				},
+			],
+		},
+	},
+	{
+		// Modules shared by the AssemblyScript worker and Node must compile
+		// under both. AssemblyScript compares strings with `==` by value and
+		// with `===` by identity, so `===` would be a bug there.
+		files: [ 'edge/assembly/**/*.ts' ],
+		rules: {
+			eqeqeq: 'off',
+		},
+	},
+	{
+		// Edge tests run on node:test, so they need no framework beyond Node;
+		// the preset assumes vitest for *.test.ts.
+		files: [ 'edge/tests/**/*.ts' ],
+		rules: {
+			'vitest/no-import-node-test': 'off',
 		},
 	},
 ];

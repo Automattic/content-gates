@@ -65,7 +65,7 @@ Things to try, with the simulator running:
 | Open `/gated-article/` twice anonymously | `MISS` then `HIT`; no `SUBSCRIBER-ONLY` |
 | Join `newsletter`, open it again | `HIT` with the same empty key: the URL does not declare `newsletter` |
 | Join `subscriber` | `MISS` with key `vc-v1__subscriber_--_1`, then `HIT`s; the article is there and the prompt is gone |
-| Open `/public-post/` with any membership | One copy for everyone, key `` |
+| Open `/public-post/` with any membership | One copy for everyone; `X-Edge-Sim-Key: -` (nothing to vary on) |
 | `curl -A Googlebot http://localhost:8890/gated-article/` | Full article, `content-gates-gated-1` class, JSON-LD in the head, no `Set-Cookie` |
 | Open `/metered-article/`, `/metered-article-2/`, `/metered-article-3/`, then the first again in one cookie jar | First visit shows the gate and sets `open`; then three articles; then `METERED-WALL` |
 | Deactivate `subscriber` on Settings > Content Gates | The simulator's store is purged; subscribers see the gate until reactivation |
