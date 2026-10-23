@@ -55,6 +55,7 @@ Defects confirmed in the prototype and fixed. Each has a regression test.
 - Membership writes are idempotent. `assign_reader_to_segment()` with the value the reader already holds, and `remove_reader_from_segment()` for a group the reader is not in, return `true` and write nothing. Before this, every reassert wrote `Set-Cookie`, and a response with `Set-Cookie` is never stored, so a provider that reasserts on every request made every entitled view a cache miss.
 - Removing the last group expires the cookie (see "Membership runtime" above).
 - Segment mutations need `manage_options` on every path. The `cg_segment` post type used `capability_type => post`, so an editor could rename a segment or flip its status through XML-RPC or `wp_update_post()`, and the purge fired only from the registry's own methods. The post type now maps its primitive capabilities to `manage_options` (deletion to `do_not_allow`), and status and meter changes are announced from `transition_post_status` and `updated_post_meta`, so any path that persists a change requests the purge. `Cache_Purge` collapses the events of one request into one purge.
+- Phase 3 fails closed without its markers. The worker treated a missing lookup marker as a full lookup, which counts as covered. Had `resp.request` not carried the markers on the platform (an open question), every narrowed response would have been stored unchecked. Missing or malformed markers now mean `no-store` and no record write.
 
 ## Caching
 

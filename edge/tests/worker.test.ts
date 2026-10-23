@@ -162,6 +162,36 @@ test( 'phase 3 ignores unsegmented responses', () => {
 	assert.equal( encoding.record, null );
 } );
 
+test( 'phase 3 fails closed when the lookup markers are missing or malformed', () => {
+	const missing = new OriginResponseInput();
+	missing.vary = 'X-VIP-Go-Segmentation';
+	missing.declared = 'subscriber';
+	const out = onOriginResponsePure( missing );
+	assert.equal( out.noStore, true );
+	assert.equal( out.reason, 'no-marker' );
+	assert.equal( out.record, null, 'nothing is learned without the markers' );
+
+	const bogus = onOriginResponsePure(
+		originResponse( 'X-VIP-Go-Segmentation', 'subscriber', 'maybe', '' )
+	);
+	assert.equal( bogus.noStore, true );
+	assert.equal( bogus.reason, 'no-marker' );
+
+	const narrowedWithoutRecord = originResponse(
+		'X-VIP-Go-Segmentation',
+		'subscriber',
+		'narrowed',
+		''
+	);
+	narrowedWithoutRecord.recordKeys = null;
+	assert.equal( onOriginResponsePure( narrowedWithoutRecord ).noStore, true );
+
+	// Unsegmented responses need no markers.
+	const plain = new OriginResponseInput();
+	assert.equal( onOriginResponsePure( plain ).noStore, false );
+	assert.equal( onOriginResponsePure( plain ).reason, 'unsegmented' );
+} );
+
 test( 'phase 3: segmented but undeclared is never stored', () => {
 	const out = onOriginResponsePure(
 		originResponse(

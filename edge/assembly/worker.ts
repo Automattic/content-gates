@@ -239,6 +239,22 @@ export function onOriginResponsePure(
 		return out;
 	}
 
+	// Phase 1's markers say how the cache key was built. Without them the
+	// coverage check cannot run, so fail closed instead of assuming a full
+	// lookup: if the platform ever drops the request snapshot, the cost is
+	// origin requests, never a narrowed copy stored unchecked.
+	const lookup = input.lookup;
+	const recordHeader = input.recordKeys;
+	if (
+		lookup === null ||
+		( lookup != LOOKUP_FULL && lookup != LOOKUP_NARROWED ) ||
+		( lookup == LOOKUP_NARROWED && recordHeader === null )
+	) {
+		out.noStore = true;
+		out.reason = 'no-marker';
+		return out;
+	}
+
 	// Segmented but undeclared: unknown reads, so never store it.
 	const declaredHeader = input.declared;
 	if ( declaredHeader === null ) {
@@ -248,8 +264,7 @@ export function onOriginResponsePure(
 	}
 
 	const declared = parseNameList( declaredHeader );
-	const lookupFull = input.lookup === null || input.lookup == LOOKUP_FULL;
-	const recordHeader = input.recordKeys;
+	const lookupFull = lookup == LOOKUP_FULL;
 	let recordKeys: string[] = [];
 	if ( recordHeader !== null ) {
 		recordKeys = parseNameList( recordHeader );

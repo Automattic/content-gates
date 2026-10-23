@@ -98,6 +98,12 @@ Only acts on responses whose `Vary` names `x-vip-go-segmentation`. A
 response without it never ran `Vary_Cache`, so it is unsegmented and is
 cached as usual.
 
+0. **Markers missing:** the request snapshot lacks
+   `x-wpvip-content-gates-lookup`, carries an unknown value, or says
+   `narrowed` without a record marker -> `no-store`, and nothing is
+   learned. Phase 3 cannot tell how the key was built, so it fails closed.
+   If the platform ever drops `resp.request`, this costs origin requests,
+   never an unchecked store.
 1. **Undeclared:** `X-WPVIP-Content-Gates-Declared` missing ->
    `setCacheControl("no-store")`. The response skipped the plugin's
    `send_headers` callback, so its reads are unknown.

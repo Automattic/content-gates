@@ -34,6 +34,8 @@ a WPVIP application before any of it is a product claim.
    cookie binding? `getenv` exists in the SDK; JA3 is not documented.
 8. Does `resp.request` (the request snapshot the coverage check reads) exist
    on the deployed runtime? The SDK README says it needs runtime support.
+   When the markers are absent, phase 3 sets `no-store` on every segmented
+   response, so the failure costs cache hits, not safety.
 9. Does VIP's site purge (`WPCOM_VIP_Cache_Manager::purge_site_cache()`)
    exist under that name and purge every variant? The default listener
    guards with `method_exists`.
