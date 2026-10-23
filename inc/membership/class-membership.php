@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace Automattic\VIP\ContentGates\Membership;
 
 use Automattic\VIP\Cache\Vary_Cache;
+use Automattic\VIP\ContentGates\Headers;
 use Automattic\VIP\ContentGates\Platform\Platform;
 use Automattic\VIP\ContentGates\Segments\Segment;
 use Automattic\VIP\ContentGates\Segments\Segment_Registry;
@@ -34,6 +35,11 @@ use WP_Error;
  *   cookie at `PHP_INT_MAX`.
  * - REST: `send_headers` never fires, so writes close and `Vary_Cache`
  *   sends `Vary` and the cookie when the declared set is sent.
+ *
+ * Writes are idempotent: assigning a value the reader already has, or
+ * removing a group they are not in, changes nothing and sends no cookie.
+ * Removing the reader's last group expires the cookie, which upstream
+ * `Vary_Cache` does not do by itself.
  *
  * @since 0.1.0
  */
@@ -88,6 +94,7 @@ final class Membership {
 		add_action( 'init', array( $this, 'register_groups' ), 5 );
 		add_action( 'send_headers', array( $this, 'close_writes' ), PHP_INT_MAX - 1 );
 		add_action( 'content_gates_rest_headers_sent', array( $this, 'send_rest_headers' ) );
+		add_action( 'vip_vary_cache_did_send_headers', array( $this, 'expire_empty_cookie' ), 10, 2 );
 	}
 
 	/**
@@ -302,6 +309,13 @@ final class Membership {
 	 * @return true|WP_Error
 	 */
 	private function write( Segment $segment, string $value ): true|WP_Error {
+		// A write that changes nothing is a no-op: no dirty flag and no
+		// `Set-Cookie`, so a provider that reasserts membership on every
+		// request leaves the response storable.
+		if ( $this->current_value( $segment ) === $value ) {
+			return true;
+		}
+
 		$result = Vary_Cache::set_group_for_user( $segment->group_name, $value );
 		if ( is_wp_error( $result ) ) {
 			$code = match ( $result->get_error_code() ) {
@@ -316,6 +330,54 @@ final class Membership {
 		$this->dirty = true;
 
 		return true;
+	}
+
+	/**
+	 * The value `Vary_Cache` holds for a segment right now, trimmed; empty when none.
+	 *
+	 * @param Segment $segment Segment.
+	 */
+	private function current_value( Segment $segment ): string {
+		$groups = Vary_Cache::get_groups();
+		$value  = $groups[ $segment->group_name ] ?? '';
+
+		return is_string( $value ) ? trim( $value ) : '';
+	}
+
+	/**
+	 * Expire the segmentation cookie when a removal left no group behind.
+	 *
+	 * Action callback for `vip_vary_cache_did_send_headers`. Upstream
+	 * `Vary_Cache` skips the cookie write when every group is empty, so a
+	 * reader removed from their last segment would keep sending the old
+	 * cookie and stay a member. This expires it instead, with the path and
+	 * domain `Vary_Cache` used to set it. It only acts after an actual
+	 * removal this request, so a reader without a cookie never receives one.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @param bool $sent_vary   Whether `Vary` was sent.
+	 * @param bool $sent_cookie Whether `Vary_Cache` tried to write its cookie.
+	 */
+	public function expire_empty_cookie( bool $sent_vary, bool $sent_cookie ): void {
+		unset( $sent_vary );
+
+		if ( ! $sent_cookie || ! $this->dirty || ! $this->platform->is_available() ) {
+			return;
+		}
+
+		foreach ( Vary_Cache::get_groups() as $value ) {
+			if ( is_string( $value ) && '' !== trim( $value ) ) {
+				return;
+			}
+		}
+
+		$cookie = Vary_Cache::is_encryption_enabled() ? Vary_Cache::COOKIE_AUTH : Vary_Cache::COOKIE_SEGMENT;
+		if ( ! isset( $_COOKIE[ $cookie ] ) ) {
+			return;
+		}
+
+		Headers::expire_cookie( $cookie );
 	}
 
 	/**

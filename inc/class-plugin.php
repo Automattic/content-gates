@@ -282,6 +282,7 @@ final class Plugin {
 		remove_action( 'init', array( $this->membership, 'register_groups' ), 5 );
 		remove_action( 'send_headers', array( $this->membership, 'close_writes' ), PHP_INT_MAX - 1 );
 		remove_action( 'content_gates_rest_headers_sent', array( $this->membership, 'send_rest_headers' ) );
+		remove_action( 'vip_vary_cache_did_send_headers', array( $this->membership, 'expire_empty_cookie' ), 10 );
 		remove_filter( 'register_block_type_args', array( $this->gate, 'register_attributes' ), 10 );
 		remove_filter( 'pre_render_block', array( $this->gate, 'withhold' ), 10 );
 		remove_filter( 'render_block_data', array( $this->gate, 'stamp_index' ), 10 );

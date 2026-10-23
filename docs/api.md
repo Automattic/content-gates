@@ -42,6 +42,15 @@ Rules:
   is final. The reason is in [architecture.md](architecture.md#the-declared-set).
 - Inactive segments are never declared, so they read as `false`. Assignment
   to one is refused.
+- **Writes are idempotent.** Assigning a value the reader already holds, or
+  removing a group they are not in, returns `true` and writes nothing: no
+  dirty flag, no `Set-Cookie`. A provider can reassert membership on every
+  request and entitled responses stay storable at the edge.
+- **Removing the last group expires the cookie.** Upstream `Vary_Cache`
+  skips its write when every group is empty, which would leave the reader a
+  member on the next request. The plugin expires `vip-go-seg` (or
+  `vip-go-auth` in encrypted mode) on `vip_vary_cache_did_send_headers`,
+  with the path and domain `Vary_Cache` used to set it.
 - Unknown references return `false` or `null` from readers with a
   `_doing_it_wrong()` notice, and `content_gates_invalid_segment` from writers.
 

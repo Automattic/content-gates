@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace Automattic\VIP\ContentGates\Tests\Unit;
 
 use Automattic\VIP\Cache\Vary_Cache;
+use Automattic\VIP\ContentGates\Headers;
 use WP_Error;
 
 use function Automattic\VIP\ContentGates\assign_reader_to_segment;
@@ -210,6 +211,101 @@ final class Test_Membership extends Content_Gates_Test_Case {
 		$this->request_page( home_url( '/' ) );
 
 		$this->assertSame( array( true, true ), $sent );
+	}
+
+	/**
+	 * Reasserting the value the reader already has writes nothing.
+	 *
+	 * Providers often assign on every request. If each of those wrote the
+	 * cookie, every entitled response would carry `Set-Cookie` and never be
+	 * stored by the edge.
+	 */
+	public function test_reasserting_membership_is_a_no_op(): void {
+		$this->create_segment( 'Subscriber' );
+		$this->become_reader( array( 'subscriber' => '1' ) );
+		$sent = $this->capture_did_send_headers();
+
+		$this->assertTrue( assign_reader_to_segment( 'subscriber' ) );
+		$this->assertFalse( $this->plugin()->membership()->is_dirty() );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertSame( array( true, false ), $sent(), 'Vary was sent; no cookie was written.' );
+		$this->assertSame( array(), Headers::values( 'Set-Cookie' ) );
+	}
+
+	/**
+	 * Removing a group the reader is not in writes nothing.
+	 */
+	public function test_removing_an_absent_group_is_a_no_op(): void {
+		$this->create_segment( 'Subscriber' );
+		$this->become_reader( array() );
+		$sent = $this->capture_did_send_headers();
+
+		$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+		$this->assertFalse( $this->plugin()->membership()->is_dirty() );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertSame( array( true, false ), $sent() );
+	}
+
+	/**
+	 * Removing the reader's last group expires the cookie instead of leaving it.
+	 *
+	 * Upstream `Vary_Cache` skips the write when every group is empty, so
+	 * without this the reader would send the old cookie back and still be
+	 * a member on the next request.
+	 */
+	public function test_removing_the_last_group_expires_the_cookie(): void {
+		$this->create_segment( 'Subscriber' );
+		$this->become_reader( array( 'subscriber' => '1' ) );
+
+		$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+		$this->assertTrue( $this->plugin()->membership()->is_dirty() );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertStringStartsWith( 'vip-go-seg=; Max-Age=0; Path=', (string) Headers::last( 'Set-Cookie' ) );
+	}
+
+	/**
+	 * Removing one of two groups rewrites the cookie; nothing is expired.
+	 */
+	public function test_removing_one_group_keeps_the_cookie(): void {
+		$this->create_segment( 'Subscriber' );
+		$this->create_segment( 'Donor' );
+		$this->become_reader(
+			array(
+				'donor'      => '1',
+				'subscriber' => '1',
+			)
+		);
+		$sent = $this->capture_did_send_headers();
+
+		$this->assertTrue( remove_reader_from_segment( 'donor' ) );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertSame( array( true, true ), $sent(), 'Vary_Cache rewrote the cookie.' );
+		$this->assertSame( array(), Headers::values( 'Set-Cookie' ), 'No expiry.' );
+	}
+
+	/**
+	 * Record the arguments of the next `vip_vary_cache_did_send_headers`.
+	 *
+	 * @return callable(): array<int, bool> Returns the recorded pair, or an empty array before it fired.
+	 */
+	private function capture_did_send_headers(): callable {
+		$sent = array();
+		add_action(
+			'vip_vary_cache_did_send_headers',
+			static function ( bool $vary, bool $cookie ) use ( &$sent ): void {
+				$sent = array( $vary, $cookie );
+			},
+			10,
+			2
+		);
+
+		return static function () use ( &$sent ): array {
+			return $sent;
+		};
 	}
 
 	/**

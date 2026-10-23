@@ -38,7 +38,7 @@
 
 - The provider assigns membership on every origin request, for logged-in and anonymous readers alike. Login grants nothing.
 - Cookie lifetime: One day by default, filterable. Providers re-assert membership on every origin request. The maximum time a lapsed subscriber keeps the entitled view is the cookie lifetime. A short TTL needs no refresh endpoint and no client script.
-- Removal of the last segment: No workaround. `Vary_Cache` skips the cookie write when the serialized value is empty, so a reader removed from their last segment keeps the stale cookie until it expires. The wrapper documents this gap and the plugin files the upstream bug. Wait for the upstream fix rather than hand-write the cookie. The one-day TTL bounds the exposure.
+- Removal of the last segment: `Vary_Cache` skips the cookie write when the serialized value is empty, so a reader removed from their last segment would keep the stale cookie and remain a member on the next request. Decided 2026-10-23 (superseding "wait for upstream"): the plugin expires the cookie itself on `vip_vary_cache_did_send_headers`, with the path and domain `Vary_Cache` used, and only after an actual removal in that request. The upstream bug is still filed; the bundled copy of `Vary_Cache` is never edited.
 - Stepped values: Meter segments carry `open`, `last`, or `wall`, written only by the edge. `is_reader_in_segment()` on a meter segment is `true` for `open` and `last`. `get_reader_segment_value()` returns the stored value or `null`. Values match `/^[A-Za-z0-9_-]+$/`. Providers cannot assign a value to a meter segment. Metering, including the meter worker, is in the initial phase.
 - Meter configuration: Lives on the segment record at origin and reaches the edge in a response header stored with each cached copy. Nothing is configured at the edge. Changing a limit or period requires the global purge already required for segment configuration changes.
 
@@ -47,6 +47,13 @@
 - Core's `WP::main()` fires `send_headers` **before** the `wp` action. The spec placed declared-set finalization on `send_headers` and declarations on `wp`, which cannot both hold. Decided: the plugin finalizes at the end of `wp` (priority `PHP_INT_MAX`); declarations stay on `wp`, exactly as the spec's examples show. Membership writes still close at `send_headers`, where `Vary_Cache` writes the cookie. Both hooks run before any output.
 - REST responses finalize in `rest_pre_echo_response` rather than `rest_pre_serve_request`, because `_embed`ded posts render after the latter; `Vary` is sent on every REST response the plugin finalizes, since `Vary_Cache` never sees `send_headers` there and a REST response with gated content and no `Vary` would be cached once for everyone.
 - Meter headers are sent on singular pages only. Feeds and REST responses declare the meter (so the key covers the state) but are not article views and are not counted.
+
+## Corrections (2026-10-23, prototype review)
+
+Defects confirmed in the prototype and fixed. Each has a regression test.
+
+- Membership writes are idempotent. `assign_reader_to_segment()` with the value the reader already holds, and `remove_reader_from_segment()` for a group the reader is not in, return `true` and write nothing. Before this, every reassert wrote `Set-Cookie`, and a response with `Set-Cookie` is never stored, so a provider that reasserts on every request made every entitled view a cache miss.
+- Removing the last group expires the cookie (see "Membership runtime" above).
 
 ## Caching
 

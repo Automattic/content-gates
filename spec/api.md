@@ -31,6 +31,8 @@ Rules that apply to every function:
 - Meter values are written only by the Edge Worker. `assign_reader_to_segment()` on a meter segment returns `content_gates_invalid_value`. See the metering section of [page-cache.md](page-cache.md).
 - A read of a segment that is not in the declared set returns `false` or `null` and raises `_doing_it_wrong()` under `WP_DEBUG`. This is the fail-closed rule from [page-cache.md](page-cache.md). It also applies to a read made before the declared set is final.
 - Inactive segments are never declared. Reads of them return `false`. Assignment to them is refused.
+- Writes are idempotent. Assigning a value the reader already holds, or removing a group the reader is not in, returns `true`, marks nothing dirty, and sends no `Set-Cookie`. Providers can therefore reassert membership on every request without making entitled responses unstorable. (Added 2026-10-23; see [decisions.md](decisions.md).)
+- Removing the reader's last group expires the segmentation cookie (`vip-go-seg`, or `vip-go-auth` in encrypted mode) with the path and domain `Vary_Cache` used to set it. Upstream `Vary_Cache` skips the write when every group is empty, which would leave the reader a member on the next request. The plugin corrects this on `vip_vary_cache_did_send_headers` without editing `Vary_Cache`.
 - Membership is parsed from the cookie by `Vary_Cache` at `init` priority 10. Nothing in this API works before that.
 - All membership reads go through this API. A direct call to `Vary_Cache::is_user_in_group()`, `Vary_Cache::is_user_in_group_segment()`, or `Vary_Cache::get_groups()` outside the plugin is a defect, because it bypasses the declared-set check. A project PHPCS sniff flags those calls.
 
