@@ -23,6 +23,48 @@ use function Automattic\VIP\ContentGates\get_declared_segments;
 final class Test_Declared_Set extends Content_Gates_Test_Case {
 
 	/**
+	 * Origin echoes the Edge Worker's request markers, sanitized, with `-` for absent ones.
+	 *
+	 * Edge Workers expose no logs. This header plus the worker's own coverage
+	 * header let a live failure be localized from the outside.
+	 */
+	public function test_echoes_received_edge_markers(): void {
+		$this->request_page( home_url( '/' ) );
+		$this->assertSame(
+			'lookup=-; record=-; key=-; crawler=-',
+			Headers::last( Declared_Set::HEADER_RECEIVED ),
+			'A request that did not pass through the worker.'
+		);
+
+		$this->new_request();
+		$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_LOOKUP']  = 'narrowed';
+		$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_RECORD']  = 'crawlers-search, subscriber';
+		$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_KEY']     = 'cg:0123456789abcdef0123456789abcdef';
+		$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_CRAWLER'] = '';
+		try {
+			$this->request_page( home_url( '/' ) );
+			$this->assertSame(
+				'lookup=narrowed; record=crawlers-search, subscriber; key=cg:0123456789abcdef0123456789abcdef; crawler=none',
+				Headers::last( Declared_Set::HEADER_RECEIVED )
+			);
+
+			$this->new_request();
+			$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_LOOKUP'] = "full\r\nX-Injected: 1<b>";
+			$this->request_page( home_url( '/' ) );
+			$echoed = (string) Headers::last( Declared_Set::HEADER_RECEIVED );
+			$this->assertStringStartsWith( 'lookup=full X-Injected: 1; record=crawlers-search, subscriber;', $echoed, 'Tags are stripped and line breaks collapsed.' );
+			$this->assertStringNotContainsString( "\n", $echoed, 'No header injection.' );
+		} finally {
+			unset(
+				$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_LOOKUP'],
+				$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_RECORD'],
+				$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_KEY'],
+				$_SERVER['HTTP_X_WPVIP_CONTENT_GATES_CRAWLER']
+			);
+		}
+	}
+
+	/**
 	 * A singular post declares its stored assignments plus the crawler segments.
 	 */
 	public function test_singular_declares_stored_keys_and_crawlers(): void {

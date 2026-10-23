@@ -84,8 +84,21 @@ REST requests exit before the `send_headers` action, so `Vary_Cache` never sends
 | --- | --- | --- |
 | `X-WPVIP-Content-Gates-Declared` | Every response that passes the plugin's finalize callback | Sorted group names in the declared set, comma separated; empty when none |
 | `X-WPVIP-Content-Gates-Meter` | The declared set of a singular page contains a meter segment; once per meter. Feeds and REST responses declare the meter but are not article views, so they send no meter header | `{group}; id={post_id}; limit={n}; period={seconds}` |
+| `X-WPVIP-Content-Gates-Edge-Received` | With the declared header | The worker's request markers as origin received them: `lookup=…; record=…; key=…; crawler=…`. `-` is an absent header, `none` a present but empty one. Sanitized to `[A-Za-z0-9_:, -]` |
 
-Both are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
+The first two are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
+
+### Diagnostic headers (added 2026-10-23)
+
+Edge Workers expose no logs, so the worker and origin each report what they saw on the response itself. These headers are always sent, on every environment: gating them on a request header would fail exactly when the request snapshot is the thing under test, and gating on a deployment setting would make the live evidence depend on configuration. They reveal nothing the declared header does not already reveal.
+
+| Header | Set by | Value |
+| --- | --- | --- |
+| `X-WPVIP-Content-Gates-Edge-Received` | origin | The markers origin saw on the request (table above) |
+| `X-WPVIP-Content-Gates-Edge-Coverage` | worker, phase 3, before the store | `{reason}; lookup={marker}; record={names}` where reason is `covered`, `narrowed-too-far`, `undeclared`, `unsegmented`, or `no-marker`. Stored with the copy, so a hit shows the decision of the miss that created it |
+| `X-WPVIP-Content-Gates-Edge-Meter` | worker, phase 4, per delivery on metered responses | `advanced; meters={n}; age={seconds}` or `skipped; reason={why}; age={seconds}`. `age` echoes the response's `Age`, so a hit is recognizable |
+
+Reading them together: if origin's echo shows `lookup=full` but the worker's coverage header says `no-marker`, the origin-response snapshot did not carry the markers (open platform question 8). If both show `-`, phase 1 did not rewrite the request (question 1).
 
 The worker sends one request header to origin, `X-WPVIP-Content-Gates-Edge`, carrying the version of `config/crawlers.json` it was built with. The plugin compares it with its own copy and shows an admin notice on a mismatch.
 

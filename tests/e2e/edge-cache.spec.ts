@@ -57,6 +57,16 @@ test.describe( 'edge simulator', () => {
 		const first = await anon.get( SEED.gatedArticle );
 		expect( first.headers()[ 'x-edge-sim' ] ).toBe( 'MISS' );
 		expect( await first.text() ).not.toContain( SEED.subscriberOnly );
+		// The two diagnostic headers agree: phase 1's markers reached origin
+		// and phase 3 read them back.
+		expect( first.headers()[ 'x-wpvip-content-gates-edge-coverage' ] ).toBe(
+			'covered; lookup=full; record=none'
+		);
+		expect(
+			first.headers()[ 'x-wpvip-content-gates-edge-received' ]
+		).toMatch(
+			/^lookup=full; record=none; key=cg:[0-9a-f]{32}; crawler=none$/
+		);
 
 		const second = await anon.get( SEED.gatedArticle );
 		expect( second.headers()[ 'x-edge-sim' ] ).toBe( 'HIT' );
@@ -75,6 +85,9 @@ test.describe( 'edge simulator', () => {
 		expect( own.headers()[ 'x-edge-sim' ] ).toBe( 'MISS' );
 		expect( own.headers()[ 'x-edge-sim-key' ] ).toBe(
 			'vc-v1__subscriber_--_1'
+		);
+		expect( own.headers()[ 'x-wpvip-content-gates-edge-coverage' ] ).toBe(
+			'covered; lookup=narrowed; record=crawlers-ai,crawlers-search,subscriber'
 		);
 		expect( await own.text() ).toContain( SEED.subscriberOnly );
 		const again = await subscriber.get( SEED.gatedArticle );
@@ -139,6 +152,9 @@ test.describe( 'edge simulator', () => {
 		} );
 		const visit0 = await first.get( SEED.meteredArticle );
 		expect( await visit0.text() ).not.toContain( SEED.meteredBody );
+		expect( visit0.headers()[ 'x-wpvip-content-gates-edge-meter' ] ).toBe(
+			'advanced; meters=1; age=-'
+		);
 		const cookies0 = setCookies( visit0.headersArray() );
 		expect( cookies0.join( '\n' ) ).toContain( 'vip-go-meter=' );
 		expect( cookies0.join( '\n' ) ).toContain( 'metered-articles_--_open' );

@@ -29,6 +29,7 @@ import {
 import { Crypto } from './crypto.ts';
 import { responseTime } from './httpdate.ts';
 import {
+	COVERAGE_HEADER,
 	CRAWLER_HEADER,
 	ClientRequestInput,
 	ClientResponseInput,
@@ -36,11 +37,13 @@ import {
 	EDGE_VERSION_HEADER,
 	KEY_HEADER,
 	LOOKUP_HEADER,
+	METER_DIAGNOSTIC_HEADER,
 	METER_HEADER,
 	OriginResponseInput,
 	RECORD_HEADER,
 	SEGMENTATION_HEADER,
 	kvKeyFor,
+	meterDiagnostic,
 	onClientRequestPure,
 	onClientResponsePure,
 	onOriginResponsePure,
@@ -157,6 +160,10 @@ onOriginResponse( ( resp: Response ): void => {
 
 	const out = onOriginResponsePure( input );
 
+	// Always, so the stored copy says why it was storable and a miss says
+	// why it was not. Edge Workers have no logs; this header is the log.
+	resp.headers.set( COVERAGE_HEADER, out.diagnostic );
+
 	if ( out.noStore ) {
 		resp.setCacheControl( 'no-store' );
 	}
@@ -188,6 +195,10 @@ onClientResponse( ( resp: Response ): void => {
 	);
 
 	const out = onClientResponsePure( input, crypto );
+	resp.headers.set(
+		METER_DIAGNOSTIC_HEADER,
+		meterDiagnostic( out, resp.headers.get( 'age' ) )
+	);
 	if ( ! out.replace ) {
 		return;
 	}

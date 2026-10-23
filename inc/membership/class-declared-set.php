@@ -47,6 +47,7 @@ use WP_Query;
 final class Declared_Set {
 
 	public const HEADER_DECLARED = 'X-WPVIP-Content-Gates-Declared';
+	public const HEADER_RECEIVED = 'X-WPVIP-Content-Gates-Edge-Received';
 	public const HEADER_METER    = 'X-WPVIP-Content-Gates-Meter';
 
 	/**
@@ -434,12 +435,49 @@ final class Declared_Set {
 	}
 
 	/**
-	 * Close the set and send the declared and meter headers.
+	 * Echo the Edge Worker's phase 1 markers as origin received them.
+	 *
+	 * Edge Workers expose no logs. Comparing this header with the worker's
+	 * own `X-WPVIP-Content-Gates-Edge-Coverage` localizes a failure from
+	 * outside: if origin saw the markers but phase 3 did not, the request
+	 * snapshot is the problem; if neither saw them, phase 1 did not rewrite
+	 * the request. Values are echoed as received after sanitizing: `-` is
+	 * an absent header, `none` a present but empty one.
+	 *
+	 * @return string `lookup=…; record=…; key=…; crawler=…`.
+	 */
+	private function received_markers(): string {
+		$markers = array(
+			'lookup'  => 'HTTP_X_WPVIP_CONTENT_GATES_LOOKUP',
+			'record'  => 'HTTP_X_WPVIP_CONTENT_GATES_RECORD',
+			'key'     => 'HTTP_X_WPVIP_CONTENT_GATES_KEY',
+			'crawler' => 'HTTP_X_WPVIP_CONTENT_GATES_CRAWLER',
+		);
+
+		$parts = array();
+		foreach ( $markers as $name => $server_key ) {
+			$value = '-';
+			if ( isset( $_SERVER[ $server_key ] ) ) {
+				$raw   = sanitize_text_field( wp_unslash( (string) $_SERVER[ $server_key ] ) );
+				$value = (string) preg_replace( '/[^A-Za-z0-9_:,\- ]/', '', $raw );
+				if ( '' === $value ) {
+					$value = 'none';
+				}
+			}
+			$parts[] = $name . '=' . $value;
+		}
+
+		return implode( '; ', $parts );
+	}
+
+	/**
+	 * Close the set and send the declared, echo, and meter headers.
 	 */
 	private function close_and_send(): void {
 		$this->closed = true;
 
 		Headers::send( self::HEADER_DECLARED, implode( ', ', $this->groups() ) );
+		Headers::send( self::HEADER_RECEIVED, $this->received_markers() );
 
 		if ( $this->counted_post_id > 0 ) {
 			foreach ( $this->meters() as $meter ) {

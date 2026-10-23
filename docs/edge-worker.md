@@ -169,6 +169,36 @@ anyway: the browser's cookie, not the rewritten one.
 
 Origin sees the marker headers. They are harmless and useful in logs.
 
+## Diagnostic headers
+
+Edge Workers expose no logs. The worker therefore reports its decisions on
+the response, and origin echoes what it received, so a live failure can be
+localized from outside with `curl -sI`. Both are always on; see
+`spec/api.md`, "Diagnostic headers", for why they are not gated.
+
+| Header | Who | When | Value |
+| --- | --- | --- | --- |
+| `X-WPVIP-Content-Gates-Edge-Received` | origin | with the declared header | `lookup=…; record=…; key=…; crawler=…` as received; `-` absent, `none` empty |
+| `X-WPVIP-Content-Gates-Edge-Coverage` | phase 3 | before the store, so it rides with the copy | `{reason}; lookup={marker}; record={names}` |
+| `X-WPVIP-Content-Gates-Edge-Meter` | phase 4 | per delivery, metered responses only | `advanced; meters={n}; age={s}` or `skipped; reason={why}; age={s}` |
+
+How to read a pair of responses:
+
+| Origin echo | Worker coverage | Meaning |
+| --- | --- | --- |
+| `lookup=full` | `covered; lookup=full` | Phase 1 rewrote the request and phase 3 saw it. The design's two platform assumptions hold |
+| `lookup=full` | `no-marker; lookup=-` | Origin saw the markers; `resp.request` did not carry them. Open question 8, answered: no |
+| `lookup=-` | `no-marker; lookup=-` | Phase 1 did not run or could not write request headers. Open question 1 |
+| `lookup=narrowed` | `narrowed-too-far` | The KV record was stale and narrower than the declared set; the response was `no-store` and the record replaced |
+
+The coverage header on a hit is always `covered`: it is the decision of the
+miss that stored the copy. The meter header is per delivery, so on a hit
+its `age` is the platform's `Age` value and proves the meter advanced
+without origin.
+
+The simulator sets the same headers, next to its own `X-Edge-Sim-*`, so a
+local run and a live run read the same way.
+
 ## KV record layout
 
 | Key | Value |

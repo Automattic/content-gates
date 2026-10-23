@@ -39,8 +39,10 @@ import {
 	parseMeterHeader,
 	serializeMeterCookie,
 } from './meter.ts';
+import { parseNonNegativeInt } from './httpdate.ts';
 import {
 	Groups,
+	isToken,
 	narrowGroups,
 	parseSegmentation,
 	serializeSegmentation,
@@ -73,6 +75,19 @@ export const DECLARED_HEADER: string = 'x-wpvip-content-gates-declared';
 
 /** Response header origin sends once per meter segment in the declared set. */
 export const METER_HEADER: string = 'x-wpvip-content-gates-meter';
+
+/**
+ * Response header phase 3 sets with its decision. Stored with the copy, so
+ * a hit shows the decision of the miss that created it (always `covered`).
+ * Edge Workers expose no logs; this and origin's echo of the request
+ * markers (`X-WPVIP-Content-Gates-Edge-Received`) are how a live failure
+ * is localized from outside.
+ */
+export const COVERAGE_HEADER: string = 'x-wpvip-content-gates-edge-coverage';
+
+/** Response header phase 4 sets per delivery on metered responses. */
+export const METER_DIAGNOSTIC_HEADER: string =
+	'x-wpvip-content-gates-edge-meter';
 
 export const LOOKUP_FULL: string = 'full';
 export const LOOKUP_NARROWED: string = 'narrowed';
@@ -207,6 +222,38 @@ export class OriginResponseOutput {
 	record: string | null = null;
 	/** Why, for logs and the simulator. */
 	reason: string = '';
+	/** Value for `COVERAGE_HEADER`: the reason and the markers as read. */
+	diagnostic: string = '';
+}
+
+/**
+ * Compose the phase 3 diagnostic: `<reason>; lookup=<marker>; record=<names>`.
+ *
+ * Markers are echoed as read, so the header says what phase 3 saw, not
+ * what phase 1 meant: `-` is an absent marker, `none` a present but empty
+ * one (a full lookup writes an empty record marker; a narrowed lookup
+ * with an empty declared set does too), `?` a value that is not a token.
+ *
+ * @param reason     Decision reason.
+ * @param lookup     Lookup marker, or null.
+ * @param recordKeys Record marker, or null.
+ * @return The header value.
+ */
+export function coverageDiagnostic(
+	reason: string,
+	lookup: string | null,
+	recordKeys: string | null
+): string {
+	let lookupPart = '-';
+	if ( lookup !== null ) {
+		lookupPart = isToken( lookup ) ? lookup : '?';
+	}
+	let recordPart = '-';
+	if ( recordKeys !== null ) {
+		const names = parseNameList( recordKeys );
+		recordPart = names.length == 0 ? 'none' : names.join( ',' );
+	}
+	return reason + '; lookup=' + lookupPart + '; record=' + recordPart;
 }
 
 /**
@@ -229,7 +276,8 @@ export function variesOnSegmentation( vary: string | null ): bool {
 }
 
 /**
- * Phase 3 decision logic: coverage check, then record update.
+ * Phase 3 decision logic: coverage check, then record update, then the
+ * diagnostic that reports both.
  *
  * @param input Response and request facts.
  * @return What to do with the response and the record.
@@ -237,7 +285,27 @@ export function variesOnSegmentation( vary: string | null ): bool {
 export function onOriginResponsePure(
 	input: OriginResponseInput
 ): OriginResponseOutput {
+	const out = decideOriginResponse( input );
+	out.diagnostic = coverageDiagnostic(
+		out.reason,
+		input.lookup,
+		input.recordKeys
+	);
+	return out;
+}
+
+/**
+ * The phase 3 decision without its diagnostic.
+ *
+ * @param input Response and request facts.
+ * @return What to do with the response and the record.
+ */
+function decideOriginResponse(
+	input: OriginResponseInput
+): OriginResponseOutput {
 	const out = new OriginResponseOutput();
+	const lookup = input.lookup;
+	const recordHeader = input.recordKeys;
 
 	// Not segmented: `Vary_Cache` never ran, so nothing to check or learn.
 	if ( ! variesOnSegmentation( input.vary ) ) {
@@ -249,8 +317,6 @@ export function onOriginResponsePure(
 	// coverage check cannot run, so fail closed instead of assuming a full
 	// lookup: if the platform ever drops the request snapshot, the cost is
 	// origin requests, never a narrowed copy stored unchecked.
-	const lookup = input.lookup;
-	const recordHeader = input.recordKeys;
 	if (
 		lookup === null ||
 		( lookup != LOOKUP_FULL && lookup != LOOKUP_NARROWED ) ||
@@ -321,6 +387,34 @@ export class ClientResponseOutput {
 	setCookies: string[] = [];
 	/** Why the response was left alone, when `replace` is false. */
 	skipped: string = '';
+	/** How many meter headers were advanced. */
+	metersAdvanced: i32 = 0;
+}
+
+/**
+ * Compose the phase 4 diagnostic for `METER_DIAGNOSTIC_HEADER`:
+ * `advanced; meters=<n>; age=<seconds>` or `skipped; reason=<why>; age=…`.
+ *
+ * `age` echoes the response's `Age` header (`-` when absent, `?` when not
+ * a number). A cache sets `Age` on hits, so this is the external evidence
+ * that the meter advanced on a hit.
+ *
+ * @param out Phase 4 output.
+ * @param age The response's `Age` header, or null.
+ * @return The header value.
+ */
+export function meterDiagnostic(
+	out: ClientResponseOutput,
+	age: string | null
+): string {
+	let agePart = '-';
+	if ( age !== null ) {
+		agePart = parseNonNegativeInt( age ) >= 0 ? age.trim() : '?';
+	}
+	const head = out.replace
+		? 'advanced; meters=' + out.metersAdvanced.toString()
+		: 'skipped; reason=' + out.skipped;
+	return head + '; age=' + agePart;
 }
 
 /**
@@ -428,6 +522,7 @@ export function onClientResponsePure(
 	}
 
 	out.replace = true;
+	out.metersAdvanced = advanced;
 	for ( let i = 0; i < kept.length; i++ ) {
 		out.setCookies.push( kept[ i ] );
 	}

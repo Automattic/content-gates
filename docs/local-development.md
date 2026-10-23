@@ -103,6 +103,9 @@ npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates 
 | `X-WPVIP-Content-Gates-Meter` | A meter is in play on this singular page |
 | `Vary: X-VIP-Go-Segmentation` | `Vary_Cache` is active (any group registered) |
 | `X-VIP-Go-Segmentation-Debug` | Full membership, `WP_DEBUG` only, from `Vary_Cache` |
+| `X-WPVIP-Content-Gates-Edge-Received` | The worker's request markers as origin saw them; `lookup=-` means the request did not pass through a worker |
+| `X-WPVIP-Content-Gates-Edge-Coverage` | Phase 3's decision and the markers it read; `covered`, `narrowed-too-far`, `undeclared`, `unsegmented`, or `no-marker` |
+| `X-WPVIP-Content-Gates-Edge-Meter` | Phase 4's action on a metered delivery, with the response's `Age` |
 | `X-Edge-Sim`, `X-Edge-Sim-Key`, `X-Edge-Sim-Record` | Simulator only: hit status, the narrowed key, the KV record |
 
 Comparing `X-VIP-Go-Segmentation-Debug` with `X-Edge-Sim-Key` shows what

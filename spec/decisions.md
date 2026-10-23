@@ -58,6 +58,12 @@ Defects confirmed in the prototype and fixed. Each has a regression test.
 - Phase 3 fails closed without its markers. The worker treated a missing lookup marker as a full lookup, which counts as covered. Had `resp.request` not carried the markers on the platform (an open question), every narrowed response would have been stored unchecked. Missing or malformed markers now mean `no-store` and no record write.
 - Phase 4 lets origin's membership decision win. The worker built the final `vip-go-seg` from the request cookie and appended a second `Set-Cookie`, so on a metered miss where a provider assigned or removed a group the browser kept the worker's copy and origin's decision was lost. The base is now origin's `vip-go-seg` field on the response when present (an expiring one means no groups), else the request cookie; the worker writes exactly one `vip-go-seg` and leaves other cookies alone.
 
+## Diagnostics (2026-10-23)
+
+- Edge Workers expose no logs, so the worker reports each decision on the response: `X-WPVIP-Content-Gates-Edge-Coverage` from phase 3 (stored with the copy) and `X-WPVIP-Content-Gates-Edge-Meter` from phase 4 (per delivery). Origin echoes the worker's request markers in `X-WPVIP-Content-Gates-Edge-Received`. Comparing the echo with the coverage header localizes a failure to phase 1, the request snapshot, or the record.
+- Always on, not gated. A request-gated header fails exactly when the request snapshot is the thing under test. A deployment-gated header makes the live evidence depend on configuration and invites the question of whether it was on. The values are low cardinality and reveal nothing the declared header does not. Revisit if a cost appears.
+- These headers are the evidence format for the live validation scenarios; the simulator emits the same names so local and live runs read alike.
+
 ## Caching
 
 We assume that membership providers are external systems that require interaction over HTTP. However, since customer code calls our API to add or remove users from a segment, we expect them to implement their own caching.

@@ -430,6 +430,62 @@ test( 'an origin assignment on a metered miss reaches the browser once, with the
 	assert.equal( again.headers.get( 'x-edge-sim' ), 'MISS' );
 } );
 
+test( 'diagnostic headers travel with the copy (phase 3) and per delivery (phase 4)', async () => {
+	const miss = await get( '/article-1/', { 'user-agent': CHROME } );
+	assert.equal( miss.headers.get( 'x-edge-sim' ), 'MISS' );
+	assert.equal(
+		miss.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
+		'covered; lookup=full; record=none'
+	);
+	assert.equal(
+		miss.headers.get( 'x-wpvip-content-gates-edge-meter' ),
+		null,
+		'unmetered responses carry no meter diagnostic'
+	);
+
+	const hit = await get( '/article-1/', { 'user-agent': CHROME } );
+	assert.equal( hit.headers.get( 'x-edge-sim' ), 'HIT' );
+	assert.equal(
+		hit.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
+		'covered; lookup=full; record=none',
+		'a hit shows the decision of the miss that stored it'
+	);
+
+	const narrowed = await get( '/article-1/', {
+		'user-agent': CHROME,
+		cookie: 'vip-go-seg=vc-v1__subscriber_--_1',
+	} );
+	assert.equal( narrowed.headers.get( 'x-edge-sim' ), 'MISS' );
+	assert.equal(
+		narrowed.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
+		'covered; lookup=narrowed; record=crawlers-ai,crawlers-search,subscriber'
+	);
+
+	const undeclared = await get( '/undeclared/', { 'user-agent': CHROME } );
+	assert.equal(
+		undeclared.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
+		'undeclared; lookup=full; record=none'
+	);
+
+	const metered = await get( '/metered/', { 'user-agent': CHROME } );
+	assert.equal(
+		metered.headers.get( 'x-wpvip-content-gates-edge-meter' ),
+		'advanced; meters=1; age=-'
+	);
+	const meteredHit = await get( '/metered/', { 'user-agent': CHROME } );
+	assert.equal( meteredHit.headers.get( 'x-edge-sim' ), 'HIT' );
+	assert.match(
+		meteredHit.headers.get( 'x-wpvip-content-gates-edge-meter' ) ?? '',
+		/^advanced; meters=1; age=\d+$/,
+		'Age is present on a hit'
+	);
+	const bot = await get( '/metered/', { 'user-agent': GOOGLEBOT } );
+	assert.match(
+		bot.headers.get( 'x-wpvip-content-gates-edge-meter' ) ?? '',
+		/^skipped; reason=crawler; age=/
+	);
+} );
+
 test( 'crawlers are never metered', async () => {
 	const bot = await get( '/metered/', { 'user-agent': GOOGLEBOT } );
 	assert.deepEqual( bot.headers.getSetCookie(), [] );

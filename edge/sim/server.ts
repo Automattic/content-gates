@@ -23,6 +23,7 @@ import { Crypto } from '../assembly/crypto.ts';
 import { decodeRecord } from '../assembly/declared.ts';
 import { responseTime } from '../assembly/httpdate.ts';
 import {
+	COVERAGE_HEADER,
 	CRAWLER_HEADER,
 	ClientRequestInput,
 	ClientResponseInput,
@@ -30,11 +31,13 @@ import {
 	EDGE_VERSION_HEADER,
 	KEY_HEADER,
 	LOOKUP_HEADER,
+	METER_DIAGNOSTIC_HEADER,
 	METER_HEADER,
 	OriginResponseInput,
 	RECORD_HEADER,
 	SEGMENTATION_HEADER,
 	kvKeyFor,
+	meterDiagnostic,
 	onClientRequestPure,
 	onClientResponsePure,
 	onOriginResponsePure,
@@ -387,6 +390,11 @@ export async function startEdgeSim(
 			getHeader( headers, 'age' )
 		);
 		const out = onClientResponsePure( input, nodeCrypto );
+		setHeader(
+			headers,
+			METER_DIAGNOSTIC_HEADER,
+			meterDiagnostic( out, getHeader( headers, 'age' ) )
+		);
 		if ( out.replace ) {
 			deleteHeader( headers, 'set-cookie' );
 			for ( const value of out.setCookies ) {
@@ -666,6 +674,7 @@ export async function startEdgeSim(
 		phase3Input.lookup = phase1.lookup;
 		phase3Input.recordKeys = phase1.recordKeys;
 		const phase3 = onOriginResponsePure( phase3Input );
+		setHeader( headers, COVERAGE_HEADER, phase3.diagnostic );
 		if ( phase3.noStore ) {
 			// The SDK's setCacheControl() writes both of these.
 			setHeader( headers, 'cache-control', 'no-store' );
