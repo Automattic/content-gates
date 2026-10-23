@@ -184,8 +184,11 @@ PHPUnit wipes the tests-env database, killing every in-flight spec
 Beware: if ANOTHER project's wp-env holds `:8889`, Playwright's
 webServer check sees the port alive and silently reuses that foreign
 site (wp-env credentials are identical everywhere, so auth even
-succeeds). Always pass `WP_BASE_URL` in that case (`npm run doctor`
-detects this arrangement and prints the right URL).
+succeeds). Start our tests env instead (autoPort picks a free port) and
+pass the `WP_BASE_URL` that `npm run doctor` prints. `WP_BASE_URL` only
+moves the URL; `global-setup.ts` still seeds our container through
+wp-env. Only `CONTENT_GATES_E2E_EXTERNAL=1` skips the seed, for a site
+that is not our container and already carries it.
 
 ## Diagnostics
 

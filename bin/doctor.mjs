@@ -244,6 +244,20 @@ if ( await portInUse( 8890 ) ) {
 console.log( '\nPlaywright' );
 if ( urls.tests ) {
 	console.log( `  Use:  WP_BASE_URL=${ urls.tests } npm run test:e2e` );
+	console.log( '        (our container, so the seed runs as usual)' );
+} else if ( await portInUse( 8889 ) ) {
+	console.log(
+		'  :8889 belongs to something else and our tests instance is not running.'
+	);
+	console.log(
+		'  Best:  npm run env:tests start   (autoPort picks a free port; rerun doctor)'
+	);
+	console.log(
+		'  Or, against that foreign site, which must already carry the seed:'
+	);
+	console.log(
+		'  Use:   CONTENT_GATES_E2E_EXTERNAL=1 WP_BASE_URL=http://localhost:8889 npm run test:e2e'
+	);
 } else {
 	console.log(
 		'  Tests instance is not running. `npm run test:e2e` will start it.'

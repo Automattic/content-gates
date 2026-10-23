@@ -124,8 +124,10 @@ the edge narrowed away.
 
 - The two wp-env sites share nothing, but PHPUnit wipes the tests database.
   Never run `test:php` while `test:e2e` is in flight.
-- `npm run test:e2e` seeds the tests site through WP-CLI unless
-  `WP_BASE_URL` points elsewhere; then that site must already be seeded.
+- `npm run test:e2e` seeds the tests site through WP-CLI in our container,
+  whatever `WP_BASE_URL` says (autoPort may have moved the site). Set
+  `CONTENT_GATES_E2E_EXTERNAL=1` only to run against a site that is not our
+  container; that site must already carry the seed.
 - The editor script must be built (`npm run build`) or the Group block has
   no Segments control; the admin shows a notice when it is missing.
 - The simulator is a stand-in for WPVIP. Its variances are listed in

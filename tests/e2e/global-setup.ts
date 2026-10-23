@@ -29,10 +29,11 @@ export default async function globalSetup(
 	await requestUtils.activatePlugin( 'content-gates' );
 	await requestContext.dispose();
 
-	// Seed through WP-CLI in the tests container. Skipped when the base URL
-	// was pointed at another site (WP_BASE_URL), where the container is not
-	// ours; that site must already carry the seed.
-	if ( ! process.env.WP_BASE_URL ) {
+	// Seed through WP-CLI in the tests container. WP_BASE_URL alone only
+	// moves the URL (autoPort may have moved our own site off :8889), so the
+	// seed still runs. Only CONTENT_GATES_E2E_EXTERNAL=1 says the site is
+	// not our container; it must then already carry the seed.
+	if ( ! process.env.CONTENT_GATES_E2E_EXTERNAL ) {
 		execFileSync(
 			'npx',
 			[
