@@ -64,7 +64,7 @@ Browser                      Edge (worker + cache)                       Origin
   |                       store (unless no-store)                           |
   |                                 |                                       |
   |                 [phase 4] on hit or miss: advance meters,               |
-  |                           append Set-Cookie (humans only)              |
+  |                           rewrite Set-Cookie (humans only)             |
   |<--------------------------------|                                       |
 ```
 
@@ -137,8 +137,17 @@ secret is configured, and the response `Date` is readable.
 4. Next state: `open` when more than one view remains, `last` when
    exactly one, `wall` when none. A first visit (no cookie) gets a fresh
    record and is not counted; the content was withheld.
-5. Append `Set-Cookie` for `vip-go-meter` and for `vip-go-seg` with the
-   meter state merged into the reader's other non-crawler groups.
+5. Write `Set-Cookie` for `vip-go-meter` and for `vip-go-seg` with the
+   meter state merged into the reader's other non-crawler groups. Those
+   groups come from **origin's `vip-go-seg` `Set-Cookie` on this
+   response** when there is one (an expiring field means no groups), and
+   from the request cookie otherwise. On a metered miss the provider may
+   have just assigned or removed a group; reading the request cookie there
+   would write the stale membership back over origin's decision. The
+   response's `Set-Cookie` list is rewritten as a whole: other cookies pass
+   through in place, origin's `vip-go-seg` field is replaced, and exactly
+   one `vip-go-seg` reaches the browser, with origin's attributes when
+   origin wrote the cookie.
 
 ## Carrying facts between phases
 

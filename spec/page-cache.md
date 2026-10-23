@@ -312,7 +312,7 @@ Reader opens `/article-7/`, post ID 123, gated on "subscriber, metered-articles"
 2. Resets the record if the period has elapsed: count zero, empty seen list, new period start.
 3. Counts the view only if the state used for the lookup was `open` or `last` (content was delivered) and post 123 is not in the seen list. The count becomes four and 123 is added.
 4. Computes the next state. Remaining is one, so the state is `last`.
-5. Writes both cookies: the signed `vip-go-meter`, and `vip-go-seg` with `metered-articles_--_last` merged into the reader's other groups in `Vary_Cache` serialization.
+5. Writes both cookies: the signed `vip-go-meter`, and `vip-go-seg` with `metered-articles_--_last` merged into the reader's other groups in `Vary_Cache` serialization. The other groups come from origin's `vip-go-seg` `Set-Cookie` on this response when there is one (a field that expires the cookie means no groups), and from the request cookie otherwise, so a provider's assignment or removal on a metered miss is kept rather than overwritten with the request's stale membership. The worker replaces origin's `vip-go-seg` field so that exactly one reaches the browser, keeping origin's cookie attributes when origin supplied them. Other response cookies are untouched. (Precedence added 2026-10-23.)
 
 The reader's next metered view is keyed on `last`, is counted as the fifth, and leaves them at `wall`. At `wall` the Group is withheld, views are not counted, and the state stays `wall` until the period resets.
 

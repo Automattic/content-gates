@@ -180,6 +180,7 @@ onClientResponse( ( resp: Response ): void => {
 	input.meterHeaders = meters;
 	input.userAgent = snapshot.headers.get( 'user-agent' );
 	input.cookie = snapshot.headers.get( 'cookie' );
+	input.setCookies = headerValues( resp, 'set-cookie' );
 	input.secret = getenv( METER_SECRET_ENV );
 	input.now = responseTime(
 		resp.headers.get( 'date' ),
@@ -187,6 +188,12 @@ onClientResponse( ( resp: Response ): void => {
 	);
 
 	const out = onClientResponsePure( input, crypto );
+	if ( ! out.replace ) {
+		return;
+	}
+	// The response's Set-Cookie list is rewritten as a whole so that exactly
+	// one vip-go-seg field reaches the browser, with origin's decision in it.
+	resp.headers.delete( 'set-cookie' );
 	for ( let i = 0; i < out.setCookies.length; i++ ) {
 		resp.headers.append( 'set-cookie', out.setCookies[ i ] );
 	}

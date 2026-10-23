@@ -56,6 +56,15 @@ function origin( req: http.IncomingMessage, res: http.ServerResponse ): void {
 		headers[ 'x-wpvip-content-gates-meter' ] =
 			'metered-articles; id=123; limit=2; period=2592000';
 	}
+	if ( path === '/metered-assign/' ) {
+		// A provider assigned membership during this metered view.
+		headers[ 'x-wpvip-content-gates-meter' ] =
+			'metered-articles; id=124; limit=2; period=2592000';
+		headers[ 'set-cookie' ] = [
+			'session=abc; Path=/',
+			'vip-go-seg=vc-v1__subscriber_--_1; Path=/; Max-Age=86400',
+		];
+	}
 	if ( path.startsWith( '/wp-admin/' ) ) {
 		headers[ 'x-wpvip-content-gates-declared' ] = '';
 	}
@@ -400,6 +409,25 @@ test( 'metered views advance the cookie on cache hits', async () => {
 	// Stored copies carry no Set-Cookie: the worker adds them per delivery.
 	const summary = await stats();
 	assert.equal( summary.entries.length, 2 );
+} );
+
+test( 'an origin assignment on a metered miss reaches the browser once, with the meter state', async () => {
+	declaredByPath.set( '/metered-assign/', 'metered-articles, subscriber' );
+	const response = await get( '/metered-assign/', { 'user-agent': CHROME } );
+	assert.equal( response.headers.get( 'x-edge-sim' ), 'MISS' );
+	const cookies = response.headers.getSetCookie();
+	const segs = cookies.filter( ( c ) => c.startsWith( 'vip-go-seg=' ) );
+	assert.equal( segs.length, 1 );
+	assert.equal(
+		segs[ 0 ],
+		'vip-go-seg=vc-v1__metered-articles_--_open---__subscriber_--_1; Path=/; Max-Age=86400'
+	);
+	assert.equal( cookies[ 0 ], 'session=abc; Path=/' );
+	assert.ok( setCookie( response, 'vip-go-meter' ) );
+
+	// A response with Set-Cookie is never stored.
+	const again = await get( '/metered-assign/', { 'user-agent': CHROME } );
+	assert.equal( again.headers.get( 'x-edge-sim' ), 'MISS' );
 } );
 
 test( 'crawlers are never metered', async () => {

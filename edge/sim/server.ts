@@ -380,14 +380,18 @@ export async function startEdgeSim(
 		}
 		input.userAgent = getHeader( requestHeaders, 'user-agent' );
 		input.cookie = getHeader( requestHeaders, 'cookie' );
+		input.setCookies = getHeaderValues( headers, 'set-cookie' );
 		input.secret = secret;
 		input.now = responseTime(
 			getHeader( headers, 'date' ),
 			getHeader( headers, 'age' )
 		);
 		const out = onClientResponsePure( input, nodeCrypto );
-		for ( const value of out.setCookies ) {
-			headers.push( [ 'set-cookie', value ] );
+		if ( out.replace ) {
+			deleteHeader( headers, 'set-cookie' );
+			for ( const value of out.setCookies ) {
+				headers.push( [ 'set-cookie', value ] );
+			}
 		}
 		if ( out.skipped ) {
 			log( '  phase 4: skipped (' + out.skipped + ')' );

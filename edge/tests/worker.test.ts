@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { getCookie, withCookie } from '../assembly/cookies.ts';
+import {
+	expiresCookie,
+	getCookie,
+	parseSetCookie,
+	withCookie,
+} from '../assembly/cookies.ts';
 import { encodeRecord } from '../assembly/declared.ts';
 import { parseMeterCookie } from '../assembly/meter.ts';
 import {
@@ -12,7 +17,7 @@ import {
 	onClientResponsePure,
 	onOriginResponsePure,
 } from '../assembly/worker.ts';
-import { DAY, nodeCrypto } from './helpers.ts';
+import { DAY, NOW, nodeCrypto } from './helpers.ts';
 
 const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1)';
 const CHROME = 'Mozilla/5.0 Chrome/120';
@@ -364,6 +369,101 @@ test( 'phase 4 advances on the next view and drops browser-sent crawler values',
 		nodeCrypto
 	);
 	assert.equal( records[ 0 ].count, 1 );
+} );
+
+test( 'phase 4: an origin assignment on a metered miss survives into one final cookie', () => {
+	const input = clientResponse( 'vip-go-seg=vc-v1__newsletter_--_1', CHROME, [
+		METER,
+	] );
+	input.setCookies = [
+		'session=abc; Path=/; HttpOnly',
+		'vip-go-seg=vc-v1__newsletter_--_1---__subscriber_--_1; expires=Sat, 24 Oct 2026 12:00:00 GMT; Max-Age=86400; path=/',
+	];
+	const out = onClientResponsePure( input, nodeCrypto );
+	assert.equal( out.replace, true );
+	assert.equal( out.setCookies.length, 3 );
+	assert.equal(
+		out.setCookies[ 0 ],
+		'session=abc; Path=/; HttpOnly',
+		'unrelated cookies pass through in place'
+	);
+	const segs = out.setCookies.filter( ( c ) =>
+		c.startsWith( 'vip-go-seg=' )
+	);
+	assert.equal( segs.length, 1, 'exactly one vip-go-seg' );
+	assert.equal(
+		segs[ 0 ],
+		'vip-go-seg=vc-v1__metered-articles_--_open---__newsletter_--_1---__subscriber_--_1; expires=Sat, 24 Oct 2026 12:00:00 GMT; Max-Age=86400; path=/',
+		"origin's groups and attributes, plus the meter state"
+	);
+} );
+
+test( 'phase 4: an origin removal is not restored from the request cookie', () => {
+	const removed = clientResponse(
+		'vip-go-seg=vc-v1__subscriber_--_1',
+		CHROME,
+		[ METER ]
+	);
+	removed.setCookies = [ 'vip-go-seg=; Max-Age=0; Path=/' ];
+	const out = onClientResponsePure( removed, nodeCrypto );
+	assert.equal( out.setCookies.length, 2 );
+	assert.equal(
+		out.setCookies[ 1 ],
+		'vip-go-seg=vc-v1__metered-articles_--_open; Path=/; Max-Age=86400'
+	);
+
+	const expired = clientResponse(
+		'vip-go-seg=vc-v1__subscriber_--_1',
+		CHROME,
+		[ METER ]
+	);
+	expired.setCookies = [
+		'vip-go-seg=vc-v1__subscriber_--_1; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/',
+	];
+	assert.equal(
+		onClientResponsePure( expired, nodeCrypto ).setCookies[ 1 ],
+		'vip-go-seg=vc-v1__metered-articles_--_open; Path=/; Max-Age=86400'
+	);
+
+	// Skipped responses are left exactly as origin sent them.
+	const crawler = clientResponse( null, GOOGLEBOT, [ METER ] );
+	crawler.setCookies = [ 'session=abc' ];
+	assert.equal( onClientResponsePure( crawler, nodeCrypto ).replace, false );
+} );
+
+test( 'set-cookie helpers', () => {
+	const parts = parseSetCookie( 'a=1; Path=/; HttpOnly' );
+	assert.ok( parts );
+	assert.equal( parts.name, 'a' );
+	assert.equal( parts.value, '1' );
+	assert.equal( parts.attributes, 'Path=/; HttpOnly' );
+	assert.equal( parseSetCookie( 'b=' )?.value, '' );
+	assert.equal( parseSetCookie( 'b=x' )?.attributes, '' );
+	assert.equal( parseSetCookie( 'flag; Path=/' ), null );
+
+	const past = 'Expires=Thu, 01 Jan 1970 00:00:00 GMT';
+	const future = 'Expires=Sat, 24 Oct 2026 12:00:00 GMT';
+	assert.equal( expiresCookie( 'Max-Age=0; Path=/', NOW ), true );
+	assert.equal( expiresCookie( 'max-age=-1', NOW ), true );
+	assert.equal( expiresCookie( 'Max-Age=10', NOW ), false );
+	assert.equal( expiresCookie( past, NOW ), true );
+	assert.equal( expiresCookie( future, NOW ), false );
+	assert.equal(
+		expiresCookie( 'Max-Age=10; ' + past, NOW ),
+		false,
+		'Max-Age wins'
+	);
+	assert.equal(
+		expiresCookie( 'Max-Age=abc; ' + past, NOW ),
+		true,
+		'malformed Max-Age is ignored'
+	);
+	assert.equal(
+		expiresCookie( past, -1 ),
+		false,
+		'no clock, no Expires test'
+	);
+	assert.equal( expiresCookie( 'Path=/', NOW ), false );
 } );
 
 test( 'cookie helpers', () => {

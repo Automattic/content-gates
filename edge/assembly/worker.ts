@@ -15,7 +15,13 @@
  */
 
 import { classifyCrawler, crawlerKeys, crawlerVersion } from './crawlers.ts';
-import { buildSetCookie, getCookie, withCookie } from './cookies.ts';
+import {
+	buildSetCookie,
+	expiresCookie,
+	getCookie,
+	parseSetCookie,
+	withCookie,
+} from './cookies.ts';
 import { Crypto } from './crypto.ts';
 import {
 	decodeRecord,
@@ -300,6 +306,8 @@ export class ClientResponseInput {
 	userAgent: string | null = null;
 	/** The client's raw `Cookie` header, or null. */
 	cookie: string | null = null;
+	/** Every `Set-Cookie` value already on the response, in order. */
+	setCookies: string[] = [];
 	/** Meter signing secret, or null when metering is disabled. */
 	secret: string | null = null;
 	/** Epoch seconds at delivery, or -1 when unknown. */
@@ -307,9 +315,11 @@ export class ClientResponseInput {
 }
 
 export class ClientResponseOutput {
-	/** `Set-Cookie` values to append, in order. */
+	/** When true, replace the response's `Set-Cookie` fields with `setCookies`. */
+	replace: bool = false;
+	/** The complete `Set-Cookie` list for the response, in order. */
 	setCookies: string[] = [];
-	/** Why nothing was written, when `setCookies` is empty. */
+	/** Why the response was left alone, when `replace` is false. */
 	skipped: string = '';
 }
 
@@ -320,6 +330,14 @@ export class ClientResponseOutput {
  * Does nothing for crawlers (they must never carry state), when no secret
  * is configured (an unsigned cookie would be forgeable), and when the
  * response date is unreadable (a period reset needs a clock).
+ *
+ * The groups the meter state is merged into come from origin's own
+ * `vip-go-seg` `Set-Cookie` on this response when there is one, and from
+ * the request cookie otherwise. On a metered miss a provider may have
+ * assigned or removed a group; reading the request cookie there would
+ * write the stale membership back over origin's decision. The response's
+ * `Set-Cookie` list is rewritten as a whole so exactly one `vip-go-seg`
+ * reaches the browser; other cookies pass through untouched.
  *
  * @param input  Response and request facts.
  * @param crypto Hash provider.
@@ -349,8 +367,33 @@ export function onClientResponsePure(
 		return out;
 	}
 
+	// Base segmentation: origin's decision on this response wins over the
+	// request cookie. The last `vip-go-seg` field is it; one that expires
+	// the cookie means "no groups". Every other cookie is kept as sent.
+	let base: string | null = getCookie( input.cookie, SEGMENT_COOKIE );
+	let originAttributes: string | null = null;
+	const kept: string[] = [];
+	for ( let i = 0; i < input.setCookies.length; i++ ) {
+		const field = input.setCookies[ i ];
+		const parts = parseSetCookie( field );
+		if ( parts === null || parts.name != SEGMENT_COOKIE ) {
+			kept.push( field );
+			continue;
+		}
+		if (
+			parts.value.length == 0 ||
+			expiresCookie( parts.attributes, input.now )
+		) {
+			base = null;
+			originAttributes = null;
+		} else {
+			base = parts.value;
+			originAttributes = parts.attributes;
+		}
+	}
+
 	const groups: Groups = withoutGroups(
-		parseSegmentation( getCookie( input.cookie, SEGMENT_COOKIE ) ),
+		parseSegmentation( base ),
 		crawlerKeys()
 	);
 	const records: MeterRecord[] = parseMeterCookie(
@@ -384,6 +427,10 @@ export function onClientResponsePure(
 		return out;
 	}
 
+	out.replace = true;
+	for ( let i = 0; i < kept.length; i++ ) {
+		out.setCookies.push( kept[ i ] );
+	}
 	out.setCookies.push(
 		buildSetCookie(
 			METER_COOKIE,
@@ -392,13 +439,22 @@ export function onClientResponsePure(
 			true
 		)
 	);
-	out.setCookies.push(
-		buildSetCookie(
-			SEGMENT_COOKIE,
-			serializeSegmentation( groups ),
-			SEGMENT_COOKIE_MAX_AGE,
-			false
-		)
-	);
+	// Keep origin's cookie attributes when it wrote the cookie itself, so
+	// the two writers never disagree on path, domain, or lifetime.
+	const segmentation = serializeSegmentation( groups );
+	if ( originAttributes === null ) {
+		out.setCookies.push(
+			buildSetCookie(
+				SEGMENT_COOKIE,
+				segmentation,
+				SEGMENT_COOKIE_MAX_AGE,
+				false
+			)
+		);
+	} else {
+		out.setCookies.push(
+			SEGMENT_COOKIE + '=' + segmentation + '; ' + originAttributes
+		);
+	}
 	return out;
 }
