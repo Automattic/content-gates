@@ -73,7 +73,7 @@ request between learning and replacement.
 
 The current rule stays: **store when declared ⊆ record; replace the
 record whenever the sets differ.** [page-cache.md](page-cache.md),
-"Phase 3", and `edge/assembly/declared.ts` implement it.
+"Phase 3", and `edge-workers/lib/declared.ts` implement it.
 
 **What would reopen it.** Adopting the fingerprint (question 1), which
 makes a changed record a new generation by construction.

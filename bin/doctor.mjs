@@ -197,6 +197,12 @@ check(
 	'build/ missing: Group blocks have no Segments control (run npm run build)',
 	false
 );
+check(
+	existsSync( path.join( ROOT, 'edge-workers/node_modules/.bin/asc' ) ),
+	'edge-workers/node_modules/ present (SDK + AssemblyScript)',
+	'edge-workers/node_modules/ missing: edge:build cannot compile (run npm run edge:install); tests and the simulator do not need it',
+	false
+);
 
 console.log( '\nwp-env instances' );
 const containers = dockerContainers();

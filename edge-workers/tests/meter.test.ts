@@ -9,7 +9,7 @@ import {
 	parseMeterHeader,
 	serializeMeterCookie,
 	stateFor,
-} from '../assembly/meter.ts';
+} from '../lib/meter.ts';
 import { DAY, NOW, nodeCrypto } from './helpers.ts';
 
 const SECRET = 'test-secret';

@@ -1,7 +1,7 @@
 /**
  * The worker's three phases as pure functions over plain inputs.
  *
- * index.ts (the real worker) and edge/sim/server.ts (the local simulator)
+ * workers/content-gates/assembly/index.ts (the worker) and sim/server.ts (the simulator)
  * both marshal headers into these inputs and apply the outputs, so the
  * decision logic is written once and tested once. Nothing here touches
  * the SDK, KV, or the network.

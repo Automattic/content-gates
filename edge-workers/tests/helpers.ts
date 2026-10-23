@@ -3,7 +3,7 @@
  */
 
 import { createHash, createHmac } from 'node:crypto';
-import { Crypto } from '../assembly/crypto.ts';
+import { Crypto } from '../lib/crypto.ts';
 
 /** Node-backed hash provider, the same one the simulator uses. */
 export const nodeCrypto = new Crypto(

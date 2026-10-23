@@ -4,7 +4,7 @@ import {
 	parseHttpDate,
 	parseNonNegativeInt,
 	responseTime,
-} from '../assembly/httpdate.ts';
+} from '../lib/httpdate.ts';
 
 test( 'parses IMF-fixdate to epoch seconds', () => {
 	assert.equal( parseHttpDate( 'Sun, 06 Nov 1994 08:49:37 GMT' ), 784111777 );

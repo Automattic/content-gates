@@ -1,6 +1,6 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
 import { request, type APIRequestContext } from '@playwright/test';
-import { startEdgeSim } from '../../edge/sim/server.ts';
+import { startEdgeSim } from '../../edge-workers/sim/server.ts';
 import { SEED, serialize, setCookies } from './helpers';
 
 /**

@@ -5,9 +5,9 @@ import {
 	getCookie,
 	parseSetCookie,
 	withCookie,
-} from '../assembly/cookies.ts';
-import { encodeRecord } from '../assembly/declared.ts';
-import { parseMeterCookie } from '../assembly/meter.ts';
+} from '../lib/cookies.ts';
+import { encodeRecord } from '../lib/declared.ts';
+import { parseMeterCookie } from '../lib/meter.ts';
 import {
 	ClientRequestInput,
 	ClientResponseInput,
@@ -16,7 +16,7 @@ import {
 	onClientRequestPure,
 	onClientResponsePure,
 	onOriginResponsePure,
-} from '../assembly/worker.ts';
+} from '../lib/worker.ts';
 import { DAY, NOW, nodeCrypto } from './helpers.ts';
 
 const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1)';

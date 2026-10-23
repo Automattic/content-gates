@@ -2,7 +2,7 @@
  * Crawler classification against config/crawlers.json.
  *
  * The JSON file is compiled in through crawlers-config.ts, which
- * edge/build.mjs regenerates on every build, so the worker and the plugin
+ * scripts/crawlers-config.mjs regenerates on every build, so the worker and the plugin
  * agree by construction and the worker ships no runtime configuration.
  *
  * Portability rules: see segmentation.ts.

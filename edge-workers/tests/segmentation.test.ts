@@ -8,7 +8,7 @@ import {
 	serializeSegmentation,
 	sortNames,
 	withoutGroups,
-} from '../assembly/segmentation.ts';
+} from '../lib/segmentation.ts';
 
 test( 'parse and serialize round-trip in Vary_Cache format', () => {
 	const raw = 'vc-v1__newsletter_--_1---__subscriber_--_1';

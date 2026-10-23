@@ -83,7 +83,8 @@ npm run lint                                # PHPCS + PHPStan + ESLint
 npm run test:php                            # PHPUnit in the tests container
 npm run test:edge                           # Edge Worker logic and simulator, Node only
 npm run test:e2e                            # Playwright against the tests site (seeds it)
-npm run edge:build                          # compile the real worker to edge/build/release.wasm
+npm run edge:install                        # once: edge-workers/ dependencies
+npm run edge:build                          # regenerate crawlers-config.ts, then `vip edge-workers build` -> edge-workers/build/content-gates.wasm
 ```
 
 WP-CLI, from the host:

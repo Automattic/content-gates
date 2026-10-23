@@ -3,18 +3,18 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { renderCrawlerConfig } from '../build.mjs';
+import { renderCrawlerConfig } from '../scripts/crawlers-config.mjs';
 import {
 	CRAWLER_KEYS,
 	CRAWLER_PATTERNS,
 	CRAWLER_VERSION,
-} from '../assembly/crawlers-config.ts';
+} from '../lib/crawlers-config.ts';
 import {
 	classifyCrawler,
 	crawlerKeys,
 	crawlerVersion,
 	isCrawlerKey,
-} from '../assembly/crawlers.ts';
+} from '../lib/crawlers.ts';
 
 const here = dirname( fileURLToPath( import.meta.url ) );
 
@@ -29,7 +29,7 @@ test( 'crawlers-config.ts matches config/crawlers.json', () => {
 	};
 	const keys = Object.keys( config.segments ).sort();
 	const stale =
-		'edge/assembly/crawlers-config.ts is stale: run `npm run edge:build`';
+		'edge-workers/lib/crawlers-config.ts is stale: run `npm run edge:build`';
 	assert.equal( CRAWLER_VERSION, config.version, stale );
 	assert.deepEqual( CRAWLER_KEYS, keys, stale );
 	assert.deepEqual(

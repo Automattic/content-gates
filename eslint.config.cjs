@@ -36,12 +36,12 @@ module.exports = [
 		},
 	},
 	{
-		// Everything under edge/ is build tooling for the Edge Worker: what
-		// ships to WPVIP is the compiled .wasm, so the SDK and AssemblyScript
-		// are devDependencies on purpose. `packageDir` points the rule at the
-		// root manifest because edge/package.json exists only to mark the
-		// directory as ES modules for Node.
-		files: [ 'edge/**/*.{ts,mjs}' ],
+		// edge-workers/ is the VIP CLI's project layout (`vip edge-workers
+		// init`). It is its own npm package: the SDK and AssemblyScript are
+		// its dependencies, not the plugin's, so the rule resolves imports
+		// against both manifests. The simulator and tests under it are Node
+		// code that imports only node: builtins and the shared modules.
+		files: [ 'edge-workers/**/*.{ts,mjs}' ],
 		rules: {
 			'import/no-extraneous-dependencies': [
 				'error',
@@ -49,7 +49,10 @@ module.exports = [
 					devDependencies: true,
 					peerDependencies: true,
 					includeTypes: true,
-					packageDir: path.resolve( __dirname ),
+					packageDir: [
+						path.resolve( __dirname ),
+						path.resolve( __dirname, 'edge-workers' ),
+					],
 				},
 			],
 		},
@@ -58,7 +61,7 @@ module.exports = [
 		// Modules shared by the AssemblyScript worker and Node must compile
 		// under both. AssemblyScript compares strings with `==` by value and
 		// with `===` by identity, so `===` would be a bug there.
-		files: [ 'edge/assembly/**/*.ts' ],
+		files: [ 'edge-workers/lib/**/*.ts', 'edge-workers/workers/**/*.ts' ],
 		rules: {
 			eqeqeq: 'off',
 		},
@@ -66,7 +69,7 @@ module.exports = [
 	{
 		// Edge tests run on node:test, so they need no framework beyond Node;
 		// the preset assumes vitest for *.test.ts.
-		files: [ 'edge/tests/**/*.ts' ],
+		files: [ 'edge-workers/tests/**/*.ts' ],
 		rules: {
 			'vitest/no-import-node-test': 'off',
 		},

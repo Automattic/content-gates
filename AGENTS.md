@@ -39,10 +39,11 @@ and latest WordPress core. See `spec/decisions.md`.
 npm run lint          # lint:php + analyze:php + lint:js
 npm run lint:php      # composer lint   (PHPCS)
 npm run analyze:php   # composer analyze (PHPStan)
-npm run lint:js       # wp-scripts lint-js (src/, edge/, tests/e2e/, bin/)
+npm run lint:js       # wp-scripts lint-js (src/, edge-workers/, tests/e2e/, bin/)
 composer lint:fix     # PHPCBF
 npm run build         # editor script: src/ -> build/ (gitignored; the plugin enqueues build/index.js)
-npm run edge:build    # Edge Worker: edge/assembly -> edge/build/release.wasm (gitignored)
+npm run edge:install  # once: edge-workers/ dependencies (VIP edge SDK, AssemblyScript), its own npm package
+npm run edge:build    # Edge Worker: regenerate lib/crawlers-config.ts, then `vip edge-workers build` -> edge-workers/build/content-gates.wasm (gitignored)
 ```
 
 Class autoloading follows WordPress file naming:
@@ -89,7 +90,7 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `artifacts/`: gitignored Playwright output and auth storage state
 - `bin/`: repo scripts (`doctor.mjs`)
 - `config/`: data shared by the plugin and the Edge Worker (`crawlers.json`)
-- `edge/`: VIP Edge Worker (`assembly/`, AssemblyScript on the VIP SDK), the local simulator (`sim/`), and their Node tests (`tests/`)
+- `edge-workers/`: the VIP CLI edge-workers project (`vip edge-workers init` layout): `workers/content-gates/` (manifest + SDK entry), `lib/` (shared pure modules), `sim/` (local simulator), `tests/` (Node tests), `scripts/` (crawler config generator). Its own npm package: `npm run edge:install`
 - `docs/`: docs for humans and agents; start at `docs/README.md`
 - `inc/`: server PHP (`class-plugin.php` wires components to hooks; `docs/architecture.md` maps each class)
 - `spec/`: product specification
@@ -106,7 +107,8 @@ Keep development and test data separate. Do not run database-resetting suites ag
 
 ```bash
 composer install          # PHP tooling (PHPCS/WPCS, PHPUnit 9 + polyfills)
-npm install               # JS tooling (@wordpress/scripts, wp-env, Playwright, VIP edge SDK)
+npm install               # JS tooling (@wordpress/scripts, wp-env, Playwright)
+npm run edge:install      # edge-workers/ tooling (VIP edge SDK, AssemblyScript); only needed for edge:build
 npm run setup             # build the editor script, start the dev site, seed demo data
 npm run edge:sim          # optional: edge simulator on :8890 in front of the dev site
 ```
@@ -156,7 +158,7 @@ fast → slow (only the last two need wp-env):
 1. `npm run lint:php` and `npm run analyze:php`: PHPCS and PHPStan on the
    host. Catches standards, types, and undefined symbols in well under a
    second.
-2. `npm run lint:js`: ESLint over `src/`, `edge/`, `bin/`, `tests/e2e/`,
+2. `npm run lint:js`: ESLint over `src/`, `edge-workers/`, `bin/`, `tests/e2e/`,
    and `playwright.config.ts`. `npx tsc --noEmit` type-checks `src/`.
 3. `npm run test:edge`: `node --test` over the pure edge modules and the
    simulator against a fake origin. Seconds, no Docker.
@@ -272,8 +274,8 @@ Each of these has bitten. Don't rediscover them.
   Tests that need a throwaway route register it on the live server with
   `rest_get_server()->register_route()`.
 - **`node --test <directory>` fails on Node 22 and 24** with "Cannot find
-  module .../edge/tests"; only Node 26 expands a directory argument. The
-  `test:edge` script passes a quoted glob (`'edge/tests/*.test.ts'`), which
+  module .../edge-workers/tests"; only Node 26 expands a directory argument. The
+  `test:edge` script passes a quoted glob (`'edge-workers/tests/*.test.ts'`), which
   Node itself expands on every supported version. Do not "simplify" it back
   to the directory form: CI runs the `.nvmrc` version and would fail.
 - **Pure edge modules must stay inside the AssemblyScript/TypeScript

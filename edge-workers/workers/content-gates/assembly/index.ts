@@ -26,8 +26,8 @@ import {
 	onOriginResponse,
 	sha256,
 } from '@automattic/vip-edge-workers-sdk';
-import { Crypto } from './crypto.ts';
-import { responseTime } from './httpdate.ts';
+import { Crypto } from '../../../lib/crypto.ts';
+import { responseTime } from '../../../lib/httpdate.ts';
 import {
 	COVERAGE_HEADER,
 	CRAWLER_HEADER,
@@ -47,7 +47,7 @@ import {
 	onClientRequestPure,
 	onClientResponsePure,
 	onOriginResponsePure,
-} from './worker.ts';
+} from '../../../lib/worker.ts';
 
 // ABI symbols for the phases this worker handles. `alloc` is always
 // required. No body markers: the worker never reads a body. The names are

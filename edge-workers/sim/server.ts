@@ -3,7 +3,7 @@
  *
  * A dependency-free HTTP proxy that sits in front of a WordPress origin
  * (wp-env by default) and runs the same pure phase logic the real worker
- * runs (edge/assembly/worker.ts), around an in-memory cache and KV store.
+ * runs (lib/worker.ts), around an in-memory cache and KV store.
  * It exists so the plugin's cache behaviour can be exercised locally and
  * in Playwright without a VIP deployment.
  *
@@ -19,9 +19,9 @@ import { createHash, createHmac } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
-import { Crypto } from '../assembly/crypto.ts';
-import { decodeRecord } from '../assembly/declared.ts';
-import { responseTime } from '../assembly/httpdate.ts';
+import { Crypto } from '../lib/crypto.ts';
+import { decodeRecord } from '../lib/declared.ts';
+import { responseTime } from '../lib/httpdate.ts';
 import {
 	COVERAGE_HEADER,
 	CRAWLER_HEADER,
@@ -42,7 +42,7 @@ import {
 	onClientResponsePure,
 	onOriginResponsePure,
 	variesOnSegmentation,
-} from '../assembly/worker.ts';
+} from '../lib/worker.ts';
 
 export interface EdgeSimOptions {
 	/** Origin base URL. Default http://localhost:8888. */

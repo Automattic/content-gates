@@ -16,21 +16,30 @@ is the operator's and reviewer's guide to what the code does.
 
 ## Layout
 
+`edge-workers/` is a VIP CLI project, laid out by `vip edge-workers init`
+and `vip edge-workers new content-gates`: a project descriptor
+(`edge-workers.json`), its own `package.json` with the SDK and the
+AssemblyScript compiler at the versions the CLI pins, one worker under
+`workers/`, and shared modules under `lib/`. The CLI discovers workers by
+their `worker.json` and owns the compiler flags, so every customer compiles
+the same way.
+
 | Path | What it is |
 | --- | --- |
-| `edge/assembly/index.ts` | The worker. The only file that talks to the SDK. |
-| `edge/assembly/worker.ts` | The three phases as pure functions over plain inputs. |
-| `edge/assembly/segmentation.ts` | `Vary_Cache` format: parse, serialize, narrow. |
-| `edge/assembly/declared.ts` | Declared header, KV record format, coverage check. |
-| `edge/assembly/meter.ts` | Meter header, signed cookie, state machine. |
-| `edge/assembly/crawlers.ts` | Classification against the compiled-in crawler list. |
-| `edge/assembly/crawlers-config.ts` | Generated from `config/crawlers.json` by the build. |
-| `edge/assembly/cookies.ts`, `crypto.ts`, `httpdate.ts` | Small helpers. |
-| `edge/sim/` | Local page-cache emulator around the same pure modules. |
-| `edge/tests/` | `node:test` suites for the modules and the simulator. |
-| `edge/build.mjs` | Regenerates the crawler module and compiles the worker. |
+| `edge-workers/workers/content-gates/worker.json` | The worker manifest: name, entry, no `location` (every request), `on_failure: error`. |
+| `edge-workers/workers/content-gates/assembly/index.ts` | The worker. The only file that talks to the SDK. |
+| `edge-workers/lib/worker.ts` | The three phases as pure functions over plain inputs. |
+| `edge-workers/lib/segmentation.ts` | `Vary_Cache` format: parse, serialize, narrow. |
+| `edge-workers/lib/declared.ts` | Declared header, KV record format, coverage check. |
+| `edge-workers/lib/meter.ts` | Meter header, signed cookie, state machine. |
+| `edge-workers/lib/crawlers.ts` | Classification against the compiled-in crawler list. |
+| `edge-workers/lib/crawlers-config.ts` | Generated from `config/crawlers.json` by `scripts/crawlers-config.mjs`. |
+| `edge-workers/lib/cookies.ts`, `crypto.ts`, `httpdate.ts` | Small helpers. |
+| `edge-workers/sim/` | Local page-cache emulator around the same pure modules. |
+| `edge-workers/tests/` | `node:test` suites for the modules and the simulator. |
+| `edge-workers/scripts/crawlers-config.mjs` | Regenerates the crawler module before a build. |
 
-Everything under `edge/assembly/` except `index.ts` compiles under
+Everything under `edge-workers/lib/` compiles under
 AssemblyScript **and** runs unchanged under Node. That is why the code
 avoids `Map`, closures, `for...of`, regex, template literals, and `===`
 on strings, and why hashing is injected (`Crypto`) instead of imported:
@@ -271,32 +280,69 @@ cache TTL on a hit, which is fine for periods measured in days. If the
 ## Building
 
 ```bash
-npm run edge:build    # regenerates crawlers-config.ts, compiles edge/build/release.wasm
-npm run test:edge     # node:test suites for the pure modules and the simulator
-npm run lint:js       # ESLint over edge/ (and the rest of the project)
+npm run edge:install  # once: edge-workers/ dependencies (SDK, AssemblyScript), its own package
+npm run edge:build    # regenerates lib/crawlers-config.ts, then `vip edge-workers build --all`
+npm run test:edge     # node:test suites for the pure modules and the simulator; no build needed
+npm run lint:js       # ESLint over edge-workers/ (and the rest of the project)
 ```
 
-The build uses `asc --runtime stub --optimizeLevel 3 --shrinkLevel 2
---path node_modules`, as the SDK README requires. Output is gitignored.
-`edge/assembly/crawlers-config.ts` is committed so tests and the simulator
-run without a build; `edge/tests/crawlers.test.ts` fails when it is out
-of date with `config/crawlers.json`.
+`vip edge-workers build` compiles `workers/content-gates/assembly/index.ts`
+with `asc --runtime stub --optimizeLevel 3 --shrinkLevel 2 --path
+node_modules` into `edge-workers/build/content-gates.wasm` (gitignored).
+The CLI owns those flags: they are a contract with the platform's WASM
+validator. `npm run edge:build` runs the CLI through `npx` at a pinned
+version so CI and laptops compile alike; with VIP-CLI installed globally,
+`cd edge-workers && npm run build` is the same thing.
+
+`lib/crawlers-config.ts` is committed so tests and the simulator run
+without a build; `tests/crawlers.test.ts` fails when it is out of date
+with `config/crawlers.json`.
 
 The worker imports only `env.abort`, `crypto.sha256`, `crypto.hmac_sha256`,
 `header.*`, `request.*`, `kv.get`, `kv.set`, and `env.env_get`. Check with
-`grep "(import" edge/build/release.wat` after a build.
+`wasm-objdump -x -j Import edge-workers/build/content-gates.wasm` (from
+`wabt`) after a build, or temporarily add `--textFile` to the compile.
 
 ## Deploying
 
-Per the SDK README, the compiled `.wasm` is what you deploy, through
-VIP-CLI. **Unverified:** the exact VIP-CLI command, how the environment
-variable for the secret is set, and how to enable the worker per
-environment were not available in the SDK package and must come from
-VIP's Edge Workers documentation or support. Two platform requirements
-to confirm before the first deploy:
+VIP-CLI compiles and uploads the worker from `edge-workers/`; the deployable
+artifact is `build/content-gates.wasm`. Remote commands take an
+`@<app>.<env>` target and need VIP Dashboard access to that environment.
 
-- Phase 3 uses `resp.request`, which the README says requires a runtime
-  with `request.*` host-function support. Deploy the runtime first.
+```bash
+cd edge-workers
+vip @<app>.develop edge-workers validate content-gates   # server-side dry run, no upload
+vip @<app>.develop edge-workers deploy content-gates     # compile, validate, upload (disabled)
+vip @<app>.develop edge-workers enable content-gates     # start handling traffic
+vip @<app>.develop edge-workers list                     # what is deployed, and its state
+vip @<app>.develop edge-workers get content-gates
+vip @<app>.develop edge-workers disable content-gates    # stop traffic; the worker stays deployed
+```
+
+`deploy --enable` does the upload and the enable in one step. A deployed
+but disabled worker handles no traffic, so deploy first, read `list`, then
+enable on a non-production environment.
+
+`worker.json` has no `location`, so the worker runs on every request. That
+is required: phase 1 must see every request to narrow the key. If the
+manifest ever gains a `location`, note the CLI rule that removing the key
+later does **not** clear a stored rule; set it to `null` to clear it.
+
+`on_failure` is `error`. With `continue`, a worker that fails in phase 3
+after phase 1 already narrowed the key would let the response be stored
+unchecked, which is the one failure the design must not have. `error`
+turns a worker fault into a failed request instead. Confirm on the
+platform whether the policy is per phase or per worker before relying on
+this for production.
+
+**Still unverified:** how the `CONTENT_GATES_METER_SECRET` environment
+variable is set for a worker. The CLI exposes no flag for it; until it is
+set, the worker does no metering (see "The secret"). Two platform
+requirements to confirm on the first deploy:
+
+- Phase 3 uses `resp.request`, which the SDK README says requires a runtime
+  with `request.*` host-function support. The diagnostic headers show the
+  answer on the first response (see "Diagnostic headers").
 - The worker must be allowed to rewrite `X-VIP-Go-Segmentation` and the
   `Cookie` header, and the cache must key on the rewritten value
   (spec/page-cache.md, platform question 1).
@@ -329,7 +375,7 @@ their keys, and KV records with the URL each belongs to. `POST
 (what a post save does on VIP); without a body it purges everything.
 `POST /__edge/reset` purges and clears KV.
 
-From Playwright, `import { startEdgeSim } from '../../edge/sim/server.ts'`
+From Playwright, `import { startEdgeSim } from '../../edge-workers/sim/server.ts'`
 and call `startEdgeSim({ origin, port: 0, secret })`; it resolves to
 `{ url, close() }`.
 

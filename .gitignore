@@ -16,6 +16,5 @@
 # OS and editor noise
 .DS_Store
 
-# Build output
+# Build output (edge-workers/ has its own .gitignore for build/ and node_modules/)
 /build/
-/edge/build/

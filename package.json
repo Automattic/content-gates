@@ -19,19 +19,18 @@
 		"lint:js": "wp-scripts lint-js",
 		"lint:php": "composer lint",
 		"analyze:php": "composer analyze",
-		"edge:build": "node edge/build.mjs",
-		"edge:sim": "node edge/sim/cli.ts",
+		"edge:install": "npm --prefix edge-workers ci",
+		"edge:build": "node edge-workers/scripts/crawlers-config.mjs && npx --yes --package=@automattic/vip@4.1.6 vip edge-workers build --all --path edge-workers",
+		"edge:sim": "node edge-workers/sim/cli.ts",
 		"test:php": "wp-env --config=.wp-env.tests.json run cli --env-cwd=wp-content/plugins/content-gates vendor/bin/phpunit",
-		"test:edge": "node --test 'edge/tests/*.test.ts'",
+		"test:edge": "node --test 'edge-workers/tests/*.test.ts'",
 		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
-		"@automattic/vip-edge-workers-sdk": "^0.7.1",
 		"@playwright/test": "^1.64.1",
 		"@wordpress/e2e-test-utils-playwright": "^3.0.0",
 		"@wordpress/env": "^11.17.0",
 		"@wordpress/scripts": "^36.1.0",
-		"assemblyscript": "^0.27.37",
 		"typescript": "^5.9.3"
 	}
 }

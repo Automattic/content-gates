@@ -10,7 +10,7 @@ import {
 	meterDiagnostic,
 	onClientResponsePure,
 	onOriginResponsePure,
-} from '../assembly/worker.ts';
+} from '../lib/worker.ts';
 import { DAY, NOW, nodeCrypto } from './helpers.ts';
 
 /**

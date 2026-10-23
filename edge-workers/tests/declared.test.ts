@@ -7,7 +7,7 @@ import {
 	joinNames,
 	parseNameList,
 	sameNames,
-} from '../assembly/declared.ts';
+} from '../lib/declared.ts';
 
 test( 'parseNameList sorts, de-duplicates, and drops invalid names', () => {
 	assert.deepEqual( parseNameList( 'subscriber, donor, subscriber' ), [
