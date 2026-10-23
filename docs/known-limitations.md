@@ -65,6 +65,13 @@ a WPVIP application before any of it is a product claim.
 - **Rich Results Test.** The JSON-LD follows Google's paywall schema; it has
   not been submitted to the test, which needs a public URL.
 
+## Disputed protocol changes
+
+Proposed protocol changes that were reviewed and not adopted, with the
+evidence that would reopen them, are in
+[spec/open-questions.md](../spec/open-questions.md): the declared-set
+fingerprint, exact-equality coverage, and meter cookie v2.
+
 ## Simulator variances
 
 `docs/edge-worker.md` lists where the local simulator can differ from the

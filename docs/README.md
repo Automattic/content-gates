@@ -24,7 +24,8 @@ conclusions.
 
 The product specification lives in `spec/`. Where this prototype departs
 from the spec for a factual reason, the spec was corrected and the decision
-recorded in `spec/decisions.md`.
+recorded in `spec/decisions.md`. Proposed changes that were reviewed and
+not adopted are in `spec/open-questions.md`, with what would reopen them.
 
 ## Hook reference
 
