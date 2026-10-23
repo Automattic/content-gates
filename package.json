@@ -22,7 +22,7 @@
 		"edge:build": "node edge/build.mjs",
 		"edge:sim": "node edge/sim/cli.ts",
 		"test:php": "wp-env --config=.wp-env.tests.json run cli --env-cwd=wp-content/plugins/content-gates vendor/bin/phpunit",
-		"test:edge": "node --test edge/tests/",
+		"test:edge": "node --test 'edge/tests/*.test.ts'",
 		"test:e2e": "playwright test"
 	},
 	"devDependencies": {

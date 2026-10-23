@@ -262,6 +262,11 @@ Each of these has bitten. Don't rediscover them.
 - **`register_rest_route()` outside `rest_api_init` is `_doing_it_wrong`.**
   Tests that need a throwaway route register it on the live server with
   `rest_get_server()->register_route()`.
+- **`node --test <directory>` fails on Node 22 and 24** with "Cannot find
+  module .../edge/tests"; only Node 26 expands a directory argument. The
+  `test:edge` script passes a quoted glob (`'edge/tests/*.test.ts'`), which
+  Node itself expands on every supported version. Do not "simplify" it back
+  to the directory form: CI runs the `.nvmrc` version and would fail.
 - **Pure edge modules must stay inside the AssemblyScript/TypeScript
   intersection.** No `Map`, closures over locals, `for...of`, spread,
   `===` on strings, or 64-bit integers. `npm run edge:build` and
