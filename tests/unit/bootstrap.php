@@ -37,3 +37,5 @@ tests_add_filter(
 );
 
 require $content_gates_tests_dir . '/includes/bootstrap.php';
+
+require_once __DIR__ . '/class-content-gates-test-case.php';

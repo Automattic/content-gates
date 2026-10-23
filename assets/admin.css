@@ -1,0 +1,55 @@
+/*
+ * Settings > Content Gates.
+ *
+ * Plain CSS, no build step. Loaded only on the plugin's settings page.
+ */
+
+/* Each table row holds several small forms; lay them out on one line with
+   equal-height controls so buttons and inputs line up. */
+.content-gates-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+}
+
+.content-gates-actions form {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+}
+
+.content-gates-actions label {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	white-space: nowrap;
+}
+
+.content-gates-actions input[type="text"] {
+	width: 12em;
+}
+
+.content-gates-actions input[type="number"] {
+	width: 5em;
+}
+
+/* Keep the button column from wrapping under the status column. */
+#content-gates-segments td:last-child {
+	min-width: 32em;
+}
+
+#content-gates-segments td {
+	vertical-align: middle;
+}
+
+/* Meter fields apply only to meter segments: show them when the type
+   select says "meter". */
+#content-gates-create .content-gates-meter-only {
+	display: none;
+}
+
+#content-gates-create:has( #content-gates-new-type option[value="meter"]:checked ) .content-gates-meter-only {
+	display: table-row;
+}

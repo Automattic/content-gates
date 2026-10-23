@@ -38,20 +38,20 @@ The cache keys on URL plus the full value of the `X-VIP-Go-Segmentation` request
 
 The origin must know the segments a response will read before it sends headers. That is the declared set:
 
-1. **Declare before `send_headers`.** The plugin computes the declared set from content and from explicit declarations by customer code, and sends it as a response header. Nothing is learned from the render.
+1. **Declare before output.** The plugin computes the declared set from content and from explicit declarations by customer code at the end of the `wp` action (core fires `send_headers` before `wp`, so that is the last hook where declarations made on `wp` are visible; see [decisions.md](decisions.md)), and sends it as a response header. Nothing is learned from the render.
 2. **Undeclared reads fail closed.** A read for a segment that is not in the declared set returns `false` and raises `_doing_it_wrong()` under `WP_DEBUG`. A render can never depend on a segment the key does not cover.
 
 The edge worker learns each URL's declared set from the response header and keeps it in edge KV store. Content-level changes will result in a cache purge, which refetches the response from origin and updates the edge KV store. Broader changes, such as adding or removing segment checks in template code, will rely on natural cache expiration.
 
 ### The declared set
 
-For each request the plugin builds the initial declared set at `send_headers`, after the main query is resolved:
+For each request the plugin builds the initial declared set at the end of the `wp` action, after the main query is resolved:
 
 | Request | Content contribution |
 | --- | --- |
 | Singular post or page | Every segment assigned to any Group in the post content, nested or not, read from the saved block attributes. Computed at save time and stored in post meta so no parse runs per request. Assignments to inactive segments are dropped. |
 | Feed, oEmbed, embed | The union over the posts the feed or embed renders. |
-| REST response with rendered content | The union over the posts in the response, computed in `rest_pre_serve_request` before the JSON is sent. |
+| REST response with rendered content | The union over the posts whose content rendered, merged as each renders and sent in `rest_pre_echo_response` before the JSON is echoed. |
 | Archive, search, home | Nothing from content. Teasers never read segments (decided). |
 
 Reads that are not block assignments are added by the site through the declaration API below. The plugin sorts and de-duplicates the keys and sends:
@@ -60,11 +60,11 @@ Reads that are not block assignments are added by the site through the declarati
 X-WPVIP-Content-Gates-Declared: donor, subscriber
 ```
 
-The header carries `Vary_Cache` group names: the segment keys on a single site, and `{blog_id}-{key}` on multisite (see [decisions.md](decisions.md)). Inactive segments are never included. A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's `send_headers` callback (an early exit before `send_headers`) sends no header. Such a response also lacks the `Vary` header that `Vary_Cache` sends at the same hook, so the worker caches it as unsegmented. A response with the `Vary` header but no declared header is treated as unknown and not stored.
+The header carries `Vary_Cache` group names: the segment keys on a single site, and `{blog_id}-{key}` on multisite (see [decisions.md](decisions.md)). Inactive segments are never included. A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's finalize callback (an early exit before the end of the `wp` action) sends no header. Such a response also lacks the `Vary` header that `Vary_Cache` sends at the same hook, so the worker caches it as unsegmented. A response with the `Vary` header but no declared header is treated as unknown and not stored.
 
 ### Declaration API
 
-Two ways to declare, both usable only before the plugin's `send_headers` callback. `send_headers` fires before `template_redirect`, so declarations belong on the `wp` action (the main query is resolved there) or in the filter. A declaration at `template_redirect` or later returns `content_gates_too_late`.
+Two ways to declare, both usable only before the plugin's finalize callback, which runs at the end of the `wp` action (priority `PHP_INT_MAX`). The main query is resolved there and nothing has been output, so declarations belong on the `wp` action at the default priority or in the filter. A declaration at `template_redirect` or later returns `content_gates_too_late`.
 
 ```php
 use function Automattic\VIP\ContentGates\declare_segment;
@@ -184,7 +184,7 @@ Nothing leaks and no cached copy is wrong; the fix is one declaration.
 
 Segments `subscriber`, `newsletter`, and `donor`. The reader is in `subscriber` and `newsletter`. `/article-1/` has one Group gated on `subscriber` and declares nothing else.
 
-**Phase 1, client request, before lookup.** The worker reads the cookie, giving `{newsletter=1, subscriber=1}`, adds any crawler value it classifies for this request, and reads the KV record for the URL. Meter states are already cookie values and need no work here.
+**Phase 1, client request, before lookup.** The worker reads the cookie, giving `{newsletter=1, subscriber=1}`, adds any crawler value it classifies for this request, and reads the KV record for the URL. Meter states are already cookie values and need no work here. Requests that can never be stored under a segmented key (non-GET, authenticated, logged-in sessions, static files, admin paths) are left untouched before the KV read; the worker marks them `bypass`, phase 3 never stores them, and phase 4 does not meter them. (Added 2026-10-23.)
 
 - No record: pass the full value through. This is today's full-cookie keying and is safe.
 - Record `[subscriber]`: rewrite the header to the reader's values for those keys only, in `Vary_Cache` serialization.
@@ -199,7 +199,7 @@ The cache key is `/article-1/` plus `vc-v1__subscriber_--_1`. A subscriber who i
 
 **Phase 3, origin response, on a miss.** The worker reads `X-WPVIP-Content-Gates-Declared` and, in this order:
 
-1. **Coverage check.** The check applies only to responses that carry `Vary: X-VIP-Go-Segmentation`. A response without that header is not segmented, so a missing declared header is not an error and the response is cached as usual. When the `Vary` header is present, every declared key must have been present in the narrowed lookup value. If any was narrowed away, or the declared header is missing, the worker sets `Cache-Control: no-store` so the cache does not store the response under a key that is too narrow. If the lookup used the full value because no record existed, the response is covered.
+1. **Coverage check.** The check applies only to responses that carry `Vary: X-VIP-Go-Segmentation`. A response without that header is not segmented, so a missing declared header is not an error and the response is cached as usual. When the `Vary` header is present, every declared key must have been present in the narrowed lookup value. If any was narrowed away, or the declared header is missing, the worker sets `Cache-Control: no-store` so the cache does not store the response under a key that is too narrow. If the lookup used the full value because no record existed, the response is covered. The check needs the lookup markers phase 1 recorded on the request. If the origin-response snapshot lacks them, the worker cannot know how the key was built and sets `no-store` instead of assuming a full lookup; a missing snapshot costs origin requests, never an unchecked store. (Added 2026-10-23.)
 2. **Record update.** The worker replaces the KV record with the declared set. Replacement, not merge, so the record shrinks when an editor removes a segment and grows when one is added.
 
 Both steps use headers only. The worker never inspects the body.
@@ -312,7 +312,7 @@ Reader opens `/article-7/`, post ID 123, gated on "subscriber, metered-articles"
 2. Resets the record if the period has elapsed: count zero, empty seen list, new period start.
 3. Counts the view only if the state used for the lookup was `open` or `last` (content was delivered) and post 123 is not in the seen list. The count becomes four and 123 is added.
 4. Computes the next state. Remaining is one, so the state is `last`.
-5. Writes both cookies: the signed `vip-go-meter`, and `vip-go-seg` with `metered-articles_--_last` merged into the reader's other groups in `Vary_Cache` serialization.
+5. Writes both cookies: the signed `vip-go-meter`, and `vip-go-seg` with `metered-articles_--_last` merged into the reader's other groups in `Vary_Cache` serialization. The other groups come from origin's `vip-go-seg` `Set-Cookie` on this response when there is one (a field that expires the cookie means no groups), and from the request cookie otherwise, so a provider's assignment or removal on a metered miss is kept rather than overwritten with the request's stale membership. The worker replaces origin's `vip-go-seg` field so that exactly one reaches the browser, keeping origin's cookie attributes when origin supplied them. Other response cookies are untouched. (Precedence added 2026-10-23.)
 
 The reader's next metered view is keyed on `last`, is counted as the fifth, and leaves them at `wall`. At `wall` the Group is withheld, views are not counted, and the state stays `wall` until the period resets.
 

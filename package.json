@@ -5,23 +5,32 @@
 	"private": true,
 	"license": "GPL-2.0-or-later",
 	"engines": {
-		"node": ">=20"
+		"node": ">=22"
 	},
 	"scripts": {
 		"doctor": "node bin/doctor.mjs",
+		"setup": "npm run build && npm run env start && npm run seed",
 		"env": "wp-env",
 		"env:tests": "wp-env --config=.wp-env.tests.json",
+		"seed": "wp-env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates-dev seed",
+		"build": "wp-scripts build",
+		"start": "wp-scripts start",
 		"lint": "npm run lint:php && npm run analyze:php && npm run lint:js",
 		"lint:js": "wp-scripts lint-js",
 		"lint:php": "composer lint",
 		"analyze:php": "composer analyze",
+		"edge:install": "npm --prefix edge-workers ci",
+		"edge:build": "node edge-workers/scripts/crawlers-config.mjs && npx --yes --package=@automattic/vip@4.1.6 vip edge-workers build --all --path edge-workers",
+		"edge:sim": "node edge-workers/sim/cli.ts",
 		"test:php": "wp-env --config=.wp-env.tests.json run cli --env-cwd=wp-content/plugins/content-gates vendor/bin/phpunit",
+		"test:edge": "node --test 'edge-workers/tests/*.test.ts'",
 		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.64.1",
 		"@wordpress/e2e-test-utils-playwright": "^3.0.0",
 		"@wordpress/env": "^11.17.0",
-		"@wordpress/scripts": "^36.1.0"
+		"@wordpress/scripts": "^36.1.0",
+		"typescript": "^5.9.3"
 	}
 }

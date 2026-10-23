@@ -5,9 +5,13 @@
 	<file>content-gates.php</file>
 	<file>inc</file>
 	<file>tests/unit</file>
+	<file>tests/fixtures</file>
 
 	<exclude-pattern>*/vendor/*</exclude-pattern>
 	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<!-- Verbatim upstream copy of WPVIP's Vary_Cache, loaded only in local environments. -->
+	<exclude-pattern>*/inc/platform/vendor/*</exclude-pattern>
+	<exclude-pattern>*/tests/phpstan/*</exclude-pattern>
 
 	<arg name="extensions" value="php"/>
 	<arg value="sp"/>
@@ -37,6 +41,14 @@
 				<element value="content-gates"/>
 			</property>
 		</properties>
+	</rule>
+
+	<!-- Tests simulate core: they fire core hooks, define core constants, and set reader cookies. -->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<exclude-pattern>*/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPressVIPMinimum.Variables.RestrictedVariables">
+		<exclude-pattern>*/tests/*</exclude-pattern>
 	</rule>
 
 	<rule ref="WordPress.Files.FileName">

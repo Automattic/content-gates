@@ -153,9 +153,9 @@ function dockerContainers() {
 console.log( 'Toolchain' );
 const nodeMajor = Number( process.versions.node.split( '.' )[ 0 ] );
 check(
-	nodeMajor >= 20,
+	nodeMajor >= 22,
 	`node ${ process.versions.node }`,
-	`node ${ process.versions.node } (need >= 20)`
+	`node ${ process.versions.node } (need >= 22 for the edge simulator and its tests)`
 );
 const php = run( 'php', [ '-r', 'echo PHP_VERSION;' ] );
 check(
@@ -190,6 +190,18 @@ check(
 	existsSync( path.join( ROOT, 'node_modules/@wordpress/env' ) ),
 	'node_modules/ present',
 	'node_modules/ missing (run npm install)'
+);
+check(
+	existsSync( path.join( ROOT, 'build/index.asset.php' ) ),
+	'build/ present (editor Segments control)',
+	'build/ missing: Group blocks have no Segments control (run npm run build)',
+	false
+);
+check(
+	existsSync( path.join( ROOT, 'edge-workers/node_modules/.bin/asc' ) ),
+	'edge-workers/node_modules/ present (SDK + AssemblyScript)',
+	'edge-workers/node_modules/ missing: edge:build cannot compile (run npm run edge:install); tests and the simulator do not need it',
+	false
 );
 
 console.log( '\nwp-env instances' );
@@ -226,9 +238,32 @@ for ( const { label, port } of PORTS ) {
 	}
 }
 
+console.log( '\nEdge simulator' );
+if ( await portInUse( 8890 ) ) {
+	ok( ':8890 answers (npm run edge:sim, or something else)' );
+} else {
+	console.log(
+		'  off   not running; `npm run edge:sim` puts it in front of the dev site on :8890'
+	);
+}
+
 console.log( '\nPlaywright' );
 if ( urls.tests ) {
 	console.log( `  Use:  WP_BASE_URL=${ urls.tests } npm run test:e2e` );
+	console.log( '        (our container, so the seed runs as usual)' );
+} else if ( await portInUse( 8889 ) ) {
+	console.log(
+		'  :8889 belongs to something else and our tests instance is not running.'
+	);
+	console.log(
+		'  Best:  npm run env:tests start   (autoPort picks a free port; rerun doctor)'
+	);
+	console.log(
+		'  Or, against that foreign site, which must already carry the seed:'
+	);
+	console.log(
+		'  Use:   CONTENT_GATES_E2E_EXTERNAL=1 WP_BASE_URL=http://localhost:8889 npm run test:e2e'
+	);
 } else {
 	console.log(
 		'  Tests instance is not running. `npm run test:e2e` will start it.'

@@ -38,9 +38,37 @@
 
 - The provider assigns membership on every origin request, for logged-in and anonymous readers alike. Login grants nothing.
 - Cookie lifetime: One day by default, filterable. Providers re-assert membership on every origin request. The maximum time a lapsed subscriber keeps the entitled view is the cookie lifetime. A short TTL needs no refresh endpoint and no client script.
-- Removal of the last segment: No workaround. `Vary_Cache` skips the cookie write when the serialized value is empty, so a reader removed from their last segment keeps the stale cookie until it expires. The wrapper documents this gap and the plugin files the upstream bug. Wait for the upstream fix rather than hand-write the cookie. The one-day TTL bounds the exposure.
+- Removal of the last segment: `Vary_Cache` skips the cookie write when the serialized value is empty, so a reader removed from their last segment would keep the stale cookie and remain a member on the next request. Decided 2026-10-23 (superseding "wait for upstream"): the plugin expires the cookie itself on `vip_vary_cache_did_send_headers`, with the path and domain `Vary_Cache` used, and only after an actual removal in that request. The upstream bug is still filed; the bundled copy of `Vary_Cache` is never edited.
 - Stepped values: Meter segments carry `open`, `last`, or `wall`, written only by the edge. `is_reader_in_segment()` on a meter segment is `true` for `open` and `last`. `get_reader_segment_value()` returns the stored value or `null`. Values match `/^[A-Za-z0-9_-]+$/`. Providers cannot assign a value to a meter segment. Metering, including the meter worker, is in the initial phase.
 - Meter configuration: Lives on the segment record at origin and reaches the edge in a response header stored with each cached copy. Nothing is configured at the edge. Changing a limit or period requires the global purge already required for segment configuration changes.
+
+## Timing corrections (2026-10-22, prototype)
+
+- Core's `WP::main()` fires `send_headers` **before** the `wp` action. The spec placed declared-set finalization on `send_headers` and declarations on `wp`, which cannot both hold. Decided: the plugin finalizes at the end of `wp` (priority `PHP_INT_MAX`); declarations stay on `wp`, exactly as the spec's examples show. Membership writes still close at `send_headers`, where `Vary_Cache` writes the cookie. Both hooks run before any output.
+- REST responses finalize in `rest_pre_echo_response` rather than `rest_pre_serve_request`, because `_embed`ded posts render after the latter; `Vary` is sent on every REST response the plugin finalizes, since `Vary_Cache` never sees `send_headers` there and a REST response with gated content and no `Vary` would be cached once for everyone.
+- Meter headers are sent on singular pages only. Feeds and REST responses declare the meter (so the key covers the state) but are not article views and are not counted.
+
+## Corrections (2026-10-23, prototype review)
+
+Defects confirmed in the prototype and fixed. Each has a regression test.
+
+- Membership writes are idempotent. `assign_reader_to_segment()` with the value the reader already holds, and `remove_reader_from_segment()` for a group the reader is not in, return `true` and write nothing. Before this, every reassert wrote `Set-Cookie`, and a response with `Set-Cookie` is never stored, so a provider that reasserts on every request made every entitled view a cache miss.
+- Removing the last group expires the cookie (see "Membership runtime" above).
+- Segment mutations need `manage_options` on every path. The `cg_segment` post type used `capability_type => post`, so an editor could rename a segment or flip its status through XML-RPC or `wp_update_post()`, and the purge fired only from the registry's own methods. The post type now maps its primitive capabilities to `manage_options` (deletion to `do_not_allow`), and status and meter changes are announced from `transition_post_status` and `updated_post_meta`, so any path that persists a change requests the purge. `Cache_Purge` collapses the events of one request into one purge.
+- Phase 3 fails closed without its markers. The worker treated a missing lookup marker as a full lookup, which counts as covered. Had `resp.request` not carried the markers on the platform (an open question), every narrowed response would have been stored unchecked. Missing or malformed markers now mean `no-store` and no record write.
+- Phase 4 lets origin's membership decision win. The worker built the final `vip-go-seg` from the request cookie and appended a second `Set-Cookie`, so on a metered miss where a provider assigned or removed a group the browser kept the worker's copy and origin's decision was lost. The base is now origin's `vip-go-seg` field on the response when present (an expiring one means no groups), else the request cookie; the worker writes exactly one `vip-go-seg` and leaves other cookies alone.
+
+## Diagnostics (2026-10-23)
+
+- Edge Workers expose no logs, so the worker reports each decision on the response: `X-WPVIP-Content-Gates-Edge-Coverage` from phase 3 (stored with the copy) and `X-WPVIP-Content-Gates-Edge-Meter` from phase 4 (per delivery). Origin echoes the worker's request markers in `X-WPVIP-Content-Gates-Edge-Received`. Comparing the echo with the coverage header localizes a failure to phase 1, the request snapshot, or the record.
+- Always on, not gated. A request-gated header fails exactly when the request snapshot is the thing under test. A deployment-gated header makes the live evidence depend on configuration and invites the question of whether it was on. The values are low cardinality and reveal nothing the declared header does not. Revisit if a cost appears.
+- These headers are the evidence format for the live validation scenarios; the simulator emits the same names so local and live runs read alike.
+
+## Worker scope (2026-10-23)
+
+- The worker's `worker.json` has no `location`: any URL may serve gated content, and the platform's only pre-invocation condition is one path rule with no negation. Scoping by path would silently drop narrowing, metering, and crawler classification on every URL outside the rule.
+- The "except" list is inside phase 1 instead: non-GET/HEAD, `Authorization`, admin and login paths, `/wp-content/` and `/wp-includes/`, static file extensions, and logged-in or no-cache session cookies. These responses can never be stored under a segmented key, so skipping the KV read and the rewrites costs nothing and saves one KV read per asset. The request is marked `bypass`; phase 3 never stores a bypassed response and phase 4 never meters one. The simulator uses the same list.
+- `on_failure` is `error`: a worker that fails after phase 1 narrowed the key must not let the response be stored unchecked. Whether the policy is per phase is a platform question.
 
 ## Caching
 
