@@ -64,6 +64,12 @@ Defects confirmed in the prototype and fixed. Each has a regression test.
 - Always on, not gated. A request-gated header fails exactly when the request snapshot is the thing under test. A deployment-gated header makes the live evidence depend on configuration and invites the question of whether it was on. The values are low cardinality and reveal nothing the declared header does not. Revisit if a cost appears.
 - These headers are the evidence format for the live validation scenarios; the simulator emits the same names so local and live runs read alike.
 
+## Worker scope (2026-10-23)
+
+- The worker's `worker.json` has no `location`: any URL may serve gated content, and the platform's only pre-invocation condition is one path rule with no negation. Scoping by path would silently drop narrowing, metering, and crawler classification on every URL outside the rule.
+- The "except" list is inside phase 1 instead: non-GET/HEAD, `Authorization`, admin and login paths, `/wp-content/` and `/wp-includes/`, static file extensions, and logged-in or no-cache session cookies. These responses can never be stored under a segmented key, so skipping the KV read and the rewrites costs nothing and saves one KV read per asset. The request is marked `bypass`; phase 3 never stores a bypassed response and phase 4 never meters one. The simulator uses the same list.
+- `on_failure` is `error`: a worker that fails after phase 1 narrowed the key must not let the response be stored unchecked. Whether the policy is per phase is a platform question.
+
 ## Caching
 
 We assume that membership providers are external systems that require interaction over HTTP. However, since customer code calls our API to add or remove users from a segment, we expect them to implement their own caching.

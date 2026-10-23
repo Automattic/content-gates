@@ -14,6 +14,7 @@
  * Portability rules: see segmentation.ts.
  */
 
+import { bypassReason } from './bypass.ts';
 import { classifyCrawler, crawlerKeys, crawlerVersion } from './crawlers.ts';
 import {
 	buildSetCookie,
@@ -91,6 +92,8 @@ export const METER_DIAGNOSTIC_HEADER: string =
 
 export const LOOKUP_FULL: string = 'full';
 export const LOOKUP_NARROWED: string = 'narrowed';
+/** Phase 1 left the request alone (see bypass.ts); phase 3 never stores it. */
+export const LOOKUP_BYPASS: string = 'bypass';
 
 /**
  * Lifetime of the `vip-go-seg` cookie the worker writes: one day, the
@@ -313,6 +316,15 @@ function decideOriginResponse(
 		return out;
 	}
 
+	// Phase 1 did not touch this request (logged-in session, non-GET, and
+	// so on), so the key was never narrowed and never checked. The cache
+	// would not store it anyway; say so rather than rely on that.
+	if ( lookup == LOOKUP_BYPASS ) {
+		out.noStore = true;
+		out.reason = 'bypassed';
+		return out;
+	}
+
 	// Phase 1's markers say how the cache key was built. Without them the
 	// coverage check cannot run, so fail closed instead of assuming a full
 	// lookup: if the platform ever drops the request snapshot, the cost is
@@ -372,6 +384,12 @@ export class ClientResponseInput {
 	userAgent: string | null = null;
 	/** The client's raw `Cookie` header, or null. */
 	cookie: string | null = null;
+	/** The client's request method. */
+	method: string = 'GET';
+	/** The client's request target (path and query). */
+	url: string = '';
+	/** Whether the client's request carried `Authorization`. */
+	authorization: bool = false;
 	/** Every `Set-Cookie` value already on the response, in order. */
 	setCookies: string[] = [];
 	/** Meter signing secret, or null when metering is disabled. */
@@ -445,6 +463,17 @@ export function onClientResponsePure(
 
 	if ( input.meterHeaders.length == 0 ) {
 		out.skipped = 'unmetered';
+		return out;
+	}
+	if (
+		bypassReason(
+			input.method,
+			input.url,
+			input.cookie,
+			input.authorization
+		).length > 0
+	) {
+		out.skipped = 'bypass';
 		return out;
 	}
 	if ( classifyCrawler( input.userAgent ).length > 0 ) {

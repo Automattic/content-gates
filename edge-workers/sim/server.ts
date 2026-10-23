@@ -19,6 +19,8 @@ import { createHash, createHmac } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
+import { bypassReason } from '../lib/bypass.ts';
+import { crawlerVersion } from '../lib/crawlers.ts';
 import { Crypto } from '../lib/crypto.ts';
 import { decodeRecord } from '../lib/declared.ts';
 import { responseTime } from '../lib/httpdate.ts';
@@ -30,6 +32,7 @@ import {
 	DECLARED_HEADER,
 	EDGE_VERSION_HEADER,
 	KEY_HEADER,
+	LOOKUP_BYPASS,
 	LOOKUP_HEADER,
 	METER_DIAGNOSTIC_HEADER,
 	METER_HEADER,
@@ -86,13 +89,6 @@ interface OriginResult {
 }
 
 const DEFAULT_TTL_SECONDS = 300;
-const PASS_PATH_PREFIXES = [ '/wp-admin/', '/wp-login.php', '/wp-cron.php' ];
-const PASS_COOKIE_MARKERS = [
-	'wordpress_logged_in_',
-	'wp-postpass_',
-	'comment_author_',
-	'vip-go-cb',
-];
 const HOP_BY_HOP = new Set( [
 	'connection',
 	'keep-alive',
@@ -258,28 +254,6 @@ function ttlSeconds( headers: HeaderList ): number {
 }
 
 /**
- * Whether the request bypasses the cache entirely.
- *
- * @param method  Request method.
- * @param path    Request path without query.
- * @param headers Request headers.
- * @return True for a pass-through request.
- */
-function isPass( method: string, path: string, headers: HeaderList ): boolean {
-	if ( method !== 'GET' && method !== 'HEAD' ) {
-		return true;
-	}
-	if ( getHeader( headers, 'authorization' ) !== null ) {
-		return true;
-	}
-	if ( PASS_PATH_PREFIXES.some( ( prefix ) => path.startsWith( prefix ) ) ) {
-		return true;
-	}
-	const cookie = getHeader( headers, 'cookie' ) ?? '';
-	return PASS_COOKIE_MARKERS.some( ( marker ) => cookie.includes( marker ) );
-}
-
-/**
  * Read a request body fully.
  *
  * @param req Incoming request.
@@ -367,14 +341,18 @@ export async function startEdgeSim(
 	}
 
 	/**
-	 * Run phase 4 and append its cookies.
+	 * Run phase 4 and rewrite the response's cookies.
 	 *
 	 * @param headers        Response headers; mutated.
 	 * @param requestHeaders Client request headers, before phase 1.
+	 * @param method         Client request method.
+	 * @param url            Client request target.
 	 */
 	function clientResponsePhase(
 		headers: HeaderList,
-		requestHeaders: HeaderList
+		requestHeaders: HeaderList,
+		method: string,
+		url: string
 	): void {
 		const input = new ClientResponseInput();
 		input.meterHeaders = getHeaderValues( headers, METER_HEADER );
@@ -383,6 +361,10 @@ export async function startEdgeSim(
 		}
 		input.userAgent = getHeader( requestHeaders, 'user-agent' );
 		input.cookie = getHeader( requestHeaders, 'cookie' );
+		input.method = method;
+		input.url = url;
+		input.authorization =
+			getHeader( requestHeaders, 'authorization' ) !== null;
 		input.setCookies = getHeaderValues( headers, 'set-cookie' );
 		input.secret = secret;
 		input.now = responseTime(
@@ -579,12 +561,47 @@ export async function startEdgeSim(
 		}
 		const method = req.method ?? 'GET';
 		const url = req.url ?? '/';
-		const path = url.split( '?' )[ 0 ];
 		const clientHeaders = toHeaderList( req.rawHeaders );
 		const body = await readBody( req );
 
 		// Phase 1 runs on every request, as it does on the platform: the
-		// worker sees the request before the cache decides anything.
+		// worker sees the request before the cache decides anything. The
+		// version header goes on every request, bypassed or not.
+		const originHeaders: HeaderList = clientHeaders.slice();
+		setHeader( originHeaders, EDGE_VERSION_HEADER, crawlerVersion() );
+
+		// Pass-through: the worker's own bypass list, which is also what this
+		// cache never stores. No rewrites, no KV read, no phase 3; phase 4
+		// runs and skips, as the worker does on a platform that runs it.
+		const bypass = bypassReason(
+			method,
+			url,
+			getHeader( clientHeaders, 'cookie' ),
+			getHeader( clientHeaders, 'authorization' ) !== null
+		);
+		if ( bypass.length > 0 ) {
+			stats.passes++;
+			setHeader( originHeaders, LOOKUP_HEADER, LOOKUP_BYPASS );
+			log( method + ' ' + url + ' bypass=' + bypass );
+			const result = await forward( method, url, originHeaders, body );
+			const headers: HeaderList = result.headers.slice();
+			clientResponsePhase( headers, clientHeaders, method, url );
+			log( '  PASS ' + result.status );
+			deliver(
+				res,
+				method,
+				result.status,
+				[
+					...headers,
+					[ 'x-edge-sim', 'PASS' ],
+					[ 'x-edge-sim-key', '-' ],
+					[ 'x-edge-sim-record', '-' ],
+				],
+				result.body
+			);
+			return;
+		}
+
 		const key = kvKeyFor( url, nodeCrypto );
 		kvUrls.set( key, url );
 		const input = new ClientRequestInput();
@@ -594,9 +611,7 @@ export async function startEdgeSim(
 		input.record = kv.get( key ) ?? null;
 		const phase1 = onClientRequestPure( input );
 
-		const originHeaders: HeaderList = clientHeaders.slice();
 		setHeader( originHeaders, SEGMENTATION_HEADER, phase1.segmentation );
-		setHeader( originHeaders, EDGE_VERSION_HEADER, phase1.edgeVersion );
 		setHeader( originHeaders, LOOKUP_HEADER, phase1.lookup );
 		setHeader( originHeaders, RECORD_HEADER, phase1.recordKeys );
 		setHeader( originHeaders, KEY_HEADER, key );
@@ -619,22 +634,6 @@ export async function startEdgeSim(
 			[ 'x-edge-sim-record', describeRecord( key ) ],
 		];
 
-		// Pass-through: forwarded with phase 1's rewrites, never cached, no
-		// response phases.
-		if ( isPass( method, path, clientHeaders ) ) {
-			stats.passes++;
-			const result = await forward( method, url, originHeaders, body );
-			log( '  PASS ' + result.status );
-			deliver(
-				res,
-				method,
-				result.status,
-				[ ...result.headers, ...simHeaders( 'PASS' ) ],
-				result.body
-			);
-			return;
-		}
-
 		// Cache lookup: an entry matches when it does not vary, or when it
 		// was stored under this request's (narrowed) segmentation value.
 		const now = Math.floor( Date.now() / 1000 );
@@ -650,7 +649,7 @@ export async function startEdgeSim(
 				...pair,
 			] );
 			setHeader( headers, 'age', String( now - hit.storedAt ) );
-			clientResponsePhase( headers, clientHeaders );
+			clientResponsePhase( headers, clientHeaders, method, url );
 			log( '  HIT ' + hit.status );
 			deliver(
 				res,
@@ -706,7 +705,7 @@ export async function startEdgeSim(
 			cache.set( url, kept );
 		}
 
-		clientResponsePhase( headers, clientHeaders );
+		clientResponsePhase( headers, clientHeaders, method, url );
 		deliver(
 			res,
 			method,

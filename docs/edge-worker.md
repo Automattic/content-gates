@@ -79,8 +79,20 @@ Browser                      Edge (worker + cache)                       Origin
 
 ### Phase 1: `onClientRequest` (before cache lookup)
 
-Runs on every request.
+Runs on every request: `worker.json` has no `location`, because any URL
+may serve gated content and the platform's only pre-invocation condition
+is a single path rule with no negation. The "except" list is in the
+worker instead (`lib/bypass.ts`):
 
+0. **Bypass.** Non-GET/HEAD, `Authorization`, paths under `/wp-admin/`,
+   `/wp-login.php`, `/wp-cron.php`, `/xmlrpc.php`, `/wp-content/`,
+   `/wp-includes/`, static file extensions, and sessions marked by
+   `wordpress_logged_in_`, `wp-postpass_`, `comment_author_`, or
+   `vip-go-cb` cookies. None of these responses can be stored under a
+   segmented key, so the worker sets only the version header and
+   `x-wpvip-content-gates-lookup: bypass` and returns before the KV read.
+   Phase 3 treats the mark as "never store"; phase 4 skips metering. On an
+   article page with forty assets, this turns forty-one KV reads into one.
 1. Parse `vip-go-seg` from the `Cookie` header and **drop every crawler
    group** (`crawlers-ai`, `crawlers-search`, ...). A browser that sends
    `crawlers-search_--_1` gains nothing.
@@ -397,17 +409,18 @@ confirmed" until measured on VIP.
 - **TTL.** `s-maxage`, then `max-age`, else 300 seconds. VIP's defaults,
   `Expires` handling, and `X-Accel-Expires` are not emulated. Stale
   entries are not revalidated; they simply miss.
-- **Pass rules.** Pass-through for non-GET/HEAD, `Authorization`, paths
-  under `/wp-admin/`, `/wp-login.php`, `/wp-cron.php`, and cookies
-  containing `wordpress_logged_in_`, `wp-postpass_`, `comment_author_`,
-  or `vip-go-cb`. `/wp-json/` is cacheable like any GET. VIP's list is
-  longer and includes platform-specific rules.
+- **Pass rules.** The simulator passes through exactly the requests the
+  worker bypasses (`lib/bypass.ts`): one list for both. `/wp-json/` is
+  cacheable like any GET. VIP's own pass list is longer and includes
+  platform-specific rules; a request VIP passes but the worker handles is
+  harmless (the rewrite happens, nothing is stored).
 - **Storability.** Only 200 GET responses without `Set-Cookie` and without
   `no-store`, `no-cache`, `private`, or `max-age=0`. VIP may store other
   statuses (301, 404) and may strip rather than refuse some cookies.
 - **Phases on a pass.** Phase 1 runs on every request (as on the
-  platform); phases 3 and 4 do not run on pass-through requests. Whether
-  VIP runs response phases on a pass is unknown.
+  platform) and bypasses these; phase 3 does not run on a pass in the
+  simulator, and phase 4 runs and skips with `bypass`. Whether VIP runs
+  response phases on a pass is unknown; the worker is correct either way.
 - **`setCacheControl("no-store")`** is emulated by replacing
   `Cache-Control` and adding `X-Original-Cache-Control`, as the SDK does.
   Whether VIP forwards the rewritten header to the client is unknown.

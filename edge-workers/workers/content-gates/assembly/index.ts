@@ -26,6 +26,8 @@ import {
 	onOriginResponse,
 	sha256,
 } from '@automattic/vip-edge-workers-sdk';
+import { bypassReason } from '../../../lib/bypass.ts';
+import { crawlerVersion } from '../../../lib/crawlers.ts';
 import { Crypto } from '../../../lib/crypto.ts';
 import { responseTime } from '../../../lib/httpdate.ts';
 import {
@@ -36,6 +38,7 @@ import {
 	DECLARED_HEADER,
 	EDGE_VERSION_HEADER,
 	KEY_HEADER,
+	LOOKUP_BYPASS,
 	LOOKUP_HEADER,
 	METER_DIAGNOSTIC_HEADER,
 	METER_HEADER,
@@ -123,18 +126,36 @@ function headerValues( resp: Response, name: string ): string[] {
 
 // Phase 1: rewrite the segmentation the cache keys on, before lookup.
 onClientRequest( ( req: Request ): void => {
+	// The version header goes on every request, bypassed or not, so the
+	// plugin's skew notice sees it on admin requests too.
+	req.headers.set( EDGE_VERSION_HEADER, crawlerVersion() );
+
+	// Requests the cache can never store under a segmented key skip the KV
+	// read and every rewrite (see lib/bypass.ts). The marker tells origin's
+	// echo that the worker ran, and tells phase 3 to store nothing.
+	const cookie = req.headers.get( 'cookie' );
+	const reason = bypassReason(
+		req.method,
+		req.url,
+		cookie,
+		req.headers.get( 'authorization' ) !== null
+	);
+	if ( reason.length > 0 ) {
+		req.headers.set( LOOKUP_HEADER, LOOKUP_BYPASS );
+		return;
+	}
+
 	const key = kvKeyFor( req.url, crypto );
 
 	const input = new ClientRequestInput();
 	input.url = req.url;
-	input.cookie = req.headers.get( 'cookie' );
+	input.cookie = cookie;
 	input.userAgent = req.headers.get( 'user-agent' );
 	input.record = KV.getText( key );
 
 	const out = onClientRequestPure( input );
 
 	req.headers.set( SEGMENTATION_HEADER, out.segmentation );
-	req.headers.set( EDGE_VERSION_HEADER, out.edgeVersion );
 	req.headers.set( LOOKUP_HEADER, out.lookup );
 	req.headers.set( RECORD_HEADER, out.recordKeys );
 	req.headers.set( KEY_HEADER, key );
@@ -187,6 +208,9 @@ onClientResponse( ( resp: Response ): void => {
 	input.meterHeaders = meters;
 	input.userAgent = snapshot.headers.get( 'user-agent' );
 	input.cookie = snapshot.headers.get( 'cookie' );
+	input.method = snapshot.method;
+	input.url = snapshot.url;
+	input.authorization = snapshot.headers.get( 'authorization' ) !== null;
 	input.setCookies = headerValues( resp, 'set-cookie' );
 	input.secret = getenv( METER_SECRET_ENV );
 	input.now = responseTime(

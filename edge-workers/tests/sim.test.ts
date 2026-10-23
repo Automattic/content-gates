@@ -42,6 +42,12 @@ function origin( req: http.IncomingMessage, res: http.ServerResponse ): void {
 		res.end( 'body{}' );
 		return;
 	}
+	if ( path === '/plain/' ) {
+		// A page without Vary_Cache: no segmentation Vary, no declared header.
+		res.writeHead( 200, headers );
+		res.end( 'plain' );
+		return;
+	}
 	if ( path === '/set-cookie/' ) {
 		res.writeHead( 200, { ...headers, 'set-cookie': 'session=abc' } );
 		res.end( 'cookie' );
@@ -506,13 +512,40 @@ test( 'pass-through requests are forwarded and never cached', async () => {
 		cookie: 'wordpress_logged_in_abc=1; vip-go-seg=vc-v1__subscriber_--_1',
 	} );
 	assert.equal( loggedIn.headers.get( 'x-edge-sim' ), 'PASS' );
+	assert.equal(
+		loggedIn.headers.get( 'x-origin-seg' ),
+		'',
+		'no rewrite on a bypass: the segmentation header is not set'
+	);
+	assert.equal(
+		loggedIn.headers.get( 'x-origin-cookie' ),
+		'wordpress_logged_in_abc=1; vip-go-seg=vc-v1__subscriber_--_1',
+		'the cookie is forwarded untouched'
+	);
 	const auth = await get( '/wp-json/wp/v2/posts', {
 		authorization: 'Basic x',
 	} );
 	assert.equal( auth.headers.get( 'x-edge-sim' ), 'PASS' );
+	const asset = await get( '/wp-content/themes/x/style.css', {
+		'user-agent': CHROME,
+	} );
+	assert.equal( asset.headers.get( 'x-edge-sim' ), 'PASS' );
 	const summary = await stats();
-	assert.equal( summary.passes, 4 );
+	assert.equal( summary.passes, 5 );
 	assert.equal( summary.entries.length, 0 );
+	assert.equal( summary.kv.length, 0, 'a bypass never reads or writes KV' );
+
+	// A logged-in view of a metered page is not metered.
+	const editor = await get( '/metered/', {
+		'user-agent': CHROME,
+		cookie: 'wordpress_logged_in_abc=1',
+	} );
+	assert.equal( editor.headers.get( 'x-edge-sim' ), 'PASS' );
+	assert.deepEqual( editor.headers.getSetCookie(), [] );
+	assert.equal(
+		editor.headers.get( 'x-wpvip-content-gates-edge-meter' ),
+		'skipped; reason=bypass; age=-'
+	);
 } );
 
 test( 'REST responses are cacheable like any GET', async () => {
@@ -529,15 +562,19 @@ test( 'responses with Set-Cookie are not stored; unsegmented ones are', async ()
 	const again = await get( '/set-cookie/', { 'user-agent': CHROME } );
 	assert.equal( again.headers.get( 'x-edge-sim' ), 'MISS' );
 
-	await get( '/static.css', { cookie: 'vip-go-seg=vc-v1__subscriber_--_1' } );
-	const css = await get( '/static.css', {
+	await get( '/plain/', { cookie: 'vip-go-seg=vc-v1__subscriber_--_1' } );
+	const plain = await get( '/plain/', {
 		cookie: 'vip-go-seg=vc-v1__donor_--_1',
 	} );
 	assert.equal(
-		css.headers.get( 'x-edge-sim' ),
+		plain.headers.get( 'x-edge-sim' ),
 		'HIT',
 		'no Vary, so one copy for everyone'
 	);
+
+	// Static files are bypassed before the KV read and never stored here.
+	const css = await get( '/static.css', { 'user-agent': CHROME } );
+	assert.equal( css.headers.get( 'x-edge-sim' ), 'PASS' );
 } );
 
 test( 'purge removes variants of one URL; reset clears KV too', async () => {

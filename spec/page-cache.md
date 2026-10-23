@@ -184,7 +184,7 @@ Nothing leaks and no cached copy is wrong; the fix is one declaration.
 
 Segments `subscriber`, `newsletter`, and `donor`. The reader is in `subscriber` and `newsletter`. `/article-1/` has one Group gated on `subscriber` and declares nothing else.
 
-**Phase 1, client request, before lookup.** The worker reads the cookie, giving `{newsletter=1, subscriber=1}`, adds any crawler value it classifies for this request, and reads the KV record for the URL. Meter states are already cookie values and need no work here.
+**Phase 1, client request, before lookup.** The worker reads the cookie, giving `{newsletter=1, subscriber=1}`, adds any crawler value it classifies for this request, and reads the KV record for the URL. Meter states are already cookie values and need no work here. Requests that can never be stored under a segmented key (non-GET, authenticated, logged-in sessions, static files, admin paths) are left untouched before the KV read; the worker marks them `bypass`, phase 3 never stores them, and phase 4 does not meter them. (Added 2026-10-23.)
 
 - No record: pass the full value through. This is today's full-cookie keying and is safe.
 - Record `[subscriber]`: rewrite the header to the reader's values for those keys only, in `Vary_Cache` serialization.
