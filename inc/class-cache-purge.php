@@ -20,9 +20,20 @@ use Automattic\VIP\ContentGates\Segments\Segment;
  * cache manager's site purge; elsewhere the action is the extension point
  * (the local edge simulator fixture listens to it).
  *
+ * One purge per request: a site purge covers every later change in the
+ * same request, and one configuration change can arrive as several events
+ * (a meter update writes two meta values).
+ *
  * @since 0.1.0
  */
 final class Cache_Purge {
+
+	/**
+	 * Whether a purge was requested this request.
+	 *
+	 * @var bool
+	 */
+	private bool $requested = false;
 
 	/**
 	 * Add hooks.
@@ -68,6 +79,11 @@ final class Cache_Purge {
 	 * @param string $reason Human-readable reason.
 	 */
 	private function request( string $reason ): void {
+		if ( $this->requested ) {
+			return;
+		}
+		$this->requested = true;
+
 		/**
 		 * Fires when every stored variant must be purged.
 		 *
@@ -76,6 +92,15 @@ final class Cache_Purge {
 		 * @param string $reason Why the purge was requested.
 		 */
 		do_action( 'content_gates_purge_all', $reason );
+	}
+
+	/**
+	 * Forget this request's purge. For tests.
+	 *
+	 * @since 0.1.0
+	 */
+	public function reset(): void {
+		$this->requested = false;
 	}
 
 	/**

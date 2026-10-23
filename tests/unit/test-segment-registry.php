@@ -148,6 +148,93 @@ final class Test_Segment_Registry extends Content_Gates_Test_Case {
 	}
 
 	/**
+	 * Only administrators may change a segment record, on any path; nobody may delete one.
+	 */
+	public function test_segment_mutations_require_manage_options(): void {
+		$segment = $this->create_segment( 'Subscriber' );
+		$type    = get_post_type_object( Segment_Registry::POST_TYPE );
+		$this->assertNotNull( $type );
+
+		wp_set_current_user( $this->create_user( 'editor' ) );
+		$this->assertFalse( current_user_can( 'edit_post', $segment->id ), 'Editors cannot edit a segment.' );
+		$this->assertFalse( current_user_can( 'publish_post', $segment->id ) );
+		$this->assertFalse( current_user_can( $type->cap->edit_posts ), 'Editors cannot create segments.' );
+		$this->assertFalse( current_user_can( $type->cap->create_posts ) );
+
+		wp_set_current_user( $this->create_user( 'administrator' ) );
+		$this->assertTrue( current_user_can( 'edit_post', $segment->id ) );
+		$this->assertTrue( current_user_can( $type->cap->edit_posts ) );
+		$this->assertFalse( current_user_can( 'delete_post', $segment->id ) );
+	}
+
+	/**
+	 * A status change made through a generic WordPress path still purges.
+	 */
+	public function test_generic_status_change_requests_global_purge(): void {
+		$segment = $this->create_segment( 'Subscriber' );
+		$reasons = $this->capture_purges();
+
+		wp_update_post(
+			array(
+				'ID'          => $segment->id,
+				'post_status' => 'draft',
+			)
+		);
+
+		$this->assertCount( 1, $reasons() );
+		$this->assertStringContainsString( 'deactivated', $reasons()[0] );
+		$updated = $this->plugin()->segments()->resolve( $segment->id );
+		$this->assertNotNull( $updated );
+		$this->assertFalse( $updated->active );
+
+		// Renaming is not a configuration change.
+		wp_update_post(
+			array(
+				'ID'         => $segment->id,
+				'post_title' => 'Members',
+			)
+		);
+		$this->assertCount( 1, $reasons() );
+	}
+
+	/**
+	 * A meter change purges once, through update_meter() or a direct meta write.
+	 */
+	public function test_meter_change_requests_one_purge(): void {
+		$meter   = $this->create_meter( 'Metered' );
+		$reasons = $this->capture_purges();
+
+		$this->plugin()->segments()->update_meter( $meter->id, 10, 86400 );
+		$this->assertCount( 1, $reasons(), 'Two meta writes, one purge.' );
+		$this->assertStringContainsString( 'reconfigured', $reasons()[0] );
+
+		$this->new_request();
+		$reasons = $this->capture_purges();
+		update_post_meta( $meter->id, Segment_Registry::META_LIMIT, 3 );
+		$this->assertCount( 1, $reasons() );
+		$this->assertSame( 3, $this->plugin()->segments()->resolve( $meter->id )?->limit );
+	}
+
+	/**
+	 * Record every global purge request from now on.
+	 *
+	 * @return callable(): string[] The reasons recorded so far.
+	 */
+	private function capture_purges(): callable {
+		$reasons = array();
+		add_action(
+			'content_gates_purge_all',
+			static function ( string $reason ) use ( &$reasons ): void {
+				$reasons[] = $reason;
+			}
+		);
+
+		return static function () use ( &$reasons ): array {
+			return $reasons;
+		};
+	}
+
+	/**
 	 * References resolve by key and by ID; unknown references resolve to null.
 	 */
 	public function test_resolve_by_key_and_id(): void {

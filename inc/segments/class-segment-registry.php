@@ -23,6 +23,12 @@ use WP_Post;
  * - Segments are never trashed or deleted. Trash and delete are refused for
  *   every user, through capabilities and through the pre-trash and pre-delete
  *   short circuits, so REST and `wp_delete_post()` are covered as well.
+ * - Every other mutation needs `manage_options`. The post type maps its
+ *   primitive capabilities there, so generic post capabilities never grant
+ *   access on any WordPress path.
+ * - Activation, deactivation, and meter changes are announced from the
+ *   status transition and meta update hooks, so a change made through any
+ *   path, not only this class, requests the global purge.
  * - Crawler segments from `config/crawlers.json` are mirrored into reserved,
  *   read-only records. Removal from the file deactivates the record.
  * - The group name is the key on a single site and `{blog_id}-{key}` on
@@ -69,7 +75,8 @@ final class Segment_Registry {
 		add_filter( 'wp_insert_post_data', array( $this, 'protect_post_data' ), 10, 3 );
 		add_filter( 'pre_trash_post', array( $this, 'refuse_trash_or_delete' ), 10, 2 );
 		add_filter( 'pre_delete_post', array( $this, 'refuse_trash_or_delete' ), 10, 2 );
-		add_filter( 'map_meta_cap', array( $this, 'refuse_delete_cap' ), 10, 4 );
+		add_action( 'transition_post_status', array( $this, 'announce_status_change' ), 10, 3 );
+		add_action( 'updated_post_meta', array( $this, 'announce_meter_change' ), 10, 3 );
 		add_action( 'save_post_' . self::POST_TYPE, array( $this, 'flush' ) );
 		add_action( 'clean_post_cache', array( $this, 'flush_for_post' ), 10, 2 );
 	}
@@ -98,9 +105,38 @@ final class Segment_Registry {
 				'can_export'          => false,
 				'delete_with_user'    => false,
 				'supports'            => array( 'title' ),
-				'capability_type'     => 'post',
+				'capability_type'     => 'cg_segment',
 				'map_meta_cap'        => true,
+				'capabilities'        => self::capabilities(),
 			)
+		);
+	}
+
+	/**
+	 * Primitive capabilities of the post type.
+	 *
+	 * Segment configuration is administrative state, so every mutation needs
+	 * `manage_options` and deletion is impossible for everyone. With
+	 * `map_meta_cap`, core maps `edit_post`, `publish_post`, and
+	 * `delete_post` on a segment to these primitives, so XML-RPC, wp-admin,
+	 * REST, and any other path that checks post capabilities refuses an
+	 * editor. Generic post capabilities are never enough.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function capabilities(): array {
+		return array(
+			'edit_posts'             => 'manage_options',
+			'edit_others_posts'      => 'manage_options',
+			'edit_published_posts'   => 'manage_options',
+			'edit_private_posts'     => 'manage_options',
+			'publish_posts'          => 'manage_options',
+			'create_posts'           => 'manage_options',
+			'read_private_posts'     => 'manage_options',
+			'delete_posts'           => 'do_not_allow',
+			'delete_others_posts'    => 'do_not_allow',
+			'delete_published_posts' => 'do_not_allow',
+			'delete_private_posts'   => 'do_not_allow',
 		);
 	}
 
@@ -273,9 +309,9 @@ final class Segment_Registry {
 	/**
 	 * Activate or deactivate a segment.
 	 *
-	 * Fires `content_gates_segment_status_changed`, which triggers a global
-	 * purge: a site-wide configuration change invalidates every stored
-	 * variant that declared the segment.
+	 * The status transition fires `content_gates_segment_changed`, which
+	 * triggers a global purge: a site-wide configuration change invalidates
+	 * every stored variant that declared the segment.
 	 *
 	 * @since 0.1.0
 	 *
@@ -311,8 +347,6 @@ final class Segment_Registry {
 		if ( null === $updated ) {
 			return new WP_Error( 'content_gates_invalid_segment', __( 'Unknown segment.', 'content-gates' ) );
 		}
-
-		$this->announce_change( $updated, $active ? 'activated' : 'deactivated' );
 
 		return $updated;
 	}
@@ -350,8 +384,6 @@ final class Segment_Registry {
 		if ( null === $updated ) {
 			return new WP_Error( 'content_gates_invalid_segment', __( 'Unknown segment.', 'content-gates' ) );
 		}
-
-		$this->announce_change( $updated, 'reconfigured' );
 
 		return $updated;
 	}
@@ -532,30 +564,66 @@ final class Segment_Registry {
 	}
 
 	/**
-	 * Nobody may delete a segment, administrators included.
+	 * Announce an activation or deactivation, whatever path saved it.
 	 *
-	 * Filter callback for `map_meta_cap`.
+	 * Action callback for `transition_post_status`. Hooking the transition
+	 * rather than `set_active()` means a status change through
+	 * `wp_update_post()`, XML-RPC, or any other supported path fires the
+	 * same configuration-change event and purge. Creation (`new` to
+	 * `publish` or `draft`) is announced by `create()` as `created`.
 	 *
 	 * @since 0.1.0
 	 *
-	 * @param string[]     $caps    Primitive capabilities required.
-	 * @param string       $cap     Meta capability being checked.
-	 * @param int          $user_id User ID.
-	 * @param array<mixed> $args    Extra arguments; `$args[0]` is the post ID.
-	 * @return string[]
+	 * @param string  $new_status New status.
+	 * @param string  $old_status Old status.
+	 * @param WP_Post $post       Post.
 	 */
-	public function refuse_delete_cap( array $caps, string $cap, int $user_id, array $args ): array {
-		unset( $user_id );
-
-		if ( 'delete_post' !== $cap || ! isset( $args[0] ) ) {
-			return $caps;
+	public function announce_status_change( string $new_status, string $old_status, WP_Post $post ): void {
+		if ( self::POST_TYPE !== $post->post_type || $new_status === $old_status ) {
+			return;
+		}
+		if ( in_array( $old_status, array( 'new', 'auto-draft' ), true ) ) {
+			return;
 		}
 
-		if ( self::POST_TYPE === get_post_type( (int) $args[0] ) ) {
-			return array( 'do_not_allow' );
+		$this->flush();
+		$segment = $this->resolve( $post->ID );
+		if ( null === $segment ) {
+			return;
 		}
 
-		return $caps;
+		$this->announce_change( $segment, 'publish' === $new_status ? 'activated' : 'deactivated' );
+	}
+
+	/**
+	 * Announce a meter limit or period change, whatever path wrote it.
+	 *
+	 * Action callback for `updated_post_meta`. `update_meter()` writes two
+	 * meta values; `Cache_Purge` collapses the two events into one purge.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @param int    $meta_id  Meta row ID.
+	 * @param int    $post_id  Post ID.
+	 * @param string $meta_key Meta key.
+	 */
+	public function announce_meter_change( int $meta_id, int $post_id, string $meta_key ): void {
+		unset( $meta_id );
+
+		if ( ! in_array( $meta_key, array( self::META_LIMIT, self::META_PERIOD ), true ) ) {
+			return;
+		}
+		if ( self::POST_TYPE !== get_post_type( $post_id ) ) {
+			return;
+		}
+
+		$this->flush();
+		$segment = $this->resolve( $post_id );
+		if ( null === $segment ) {
+			return;
+		}
+
+		$this->announce_change( $segment, 'reconfigured' );
 	}
 
 	/**

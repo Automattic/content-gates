@@ -57,6 +57,13 @@ final class Plugin {
 	private bool $booted = false;
 
 	/**
+	 * Site-wide purge requester.
+	 *
+	 * @var Cache_Purge
+	 */
+	private Cache_Purge $cache_purge;
+
+	/**
 	 * Platform loader.
 	 *
 	 * @var Platform
@@ -173,7 +180,9 @@ final class Plugin {
 		$this->structured_data = new Structured_Data( $this->gate );
 		$this->structured_data->register();
 
-		( new Cache_Purge() )->register();
+		$this->cache_purge = new Cache_Purge();
+		$this->cache_purge->register();
+
 		( new Segments_Controller( $this->segments ) )->register();
 		( new Segment_Admin( $this->segments, $this->crawlers ) )->register();
 		( new Edge_Notice( $this->crawlers ) )->register();
@@ -292,6 +301,7 @@ final class Plugin {
 		remove_action( 'wp_head', array( $this->structured_data, 'print_json_ld' ), 10 );
 
 		$this->segments->flush();
+		$this->cache_purge->reset();
 
 		$this->declared = new Declared_Set( $this->segments );
 		$this->declared->register();

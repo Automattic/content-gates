@@ -24,14 +24,14 @@ place and calls its `register()` method. The boot order is the order below.
 | Component | File | Hooks | Job |
 | --- | --- | --- | --- |
 | `Platform\Platform` | `inc/platform/class-platform.php` | none | Loads `Vary_Cache` from mu-plugins, or the bundled upstream copy in `local`. Sets the cookie lifetime. |
-| `Segments\Segment_Registry` | `inc/segments/class-segment-registry.php` | `init` 0 and 1, `wp_insert_post_data`, `pre_trash_post`, `pre_delete_post`, `map_meta_cap`, cache flushes | Stores `cg_segment` posts, resolves keys and IDs, blocks deletion, mirrors `config/crawlers.json`. |
+| `Segments\Segment_Registry` | `inc/segments/class-segment-registry.php` | `init` 0 and 1, `wp_insert_post_data`, `pre_trash_post`, `pre_delete_post`, `transition_post_status`, `updated_post_meta`, cache flushes | Stores `cg_segment` posts (every mutation needs `manage_options`), resolves keys and IDs, blocks deletion, announces status and meter changes from any path, mirrors `config/crawlers.json`. |
 | `Membership\Declared_Set` | `inc/membership/class-declared-set.php` | `wp` `PHP_INT_MAX`, `the_content` 1, `rest_pre_serve_request`, `rest_pre_echo_response` | Builds the declared set and sends the declared and meter headers. |
 | `Membership\Membership` | `inc/membership/class-membership.php` | `init` 5, `send_headers` `PHP_INT_MAX - 1`, `content_gates_rest_headers_sent`, `vip_vary_cache_did_send_headers` | The one door to `Vary_Cache`: registers groups, writes idempotently, expires the cookie after a final removal, and reads subject to the declared set. |
 | `Rendering\Block_Gate` | `inc/rendering/class-block-gate.php` | `register_block_type_args`, `pre_render_block`, `render_block_data`, `render_block_core/group` | Registers the Group attributes, withholds Groups, numbers and marks gated Groups on crawler variants. |
 | `Rendering\Content_Meta` | `inc/rendering/class-content-meta.php` | `save_post`, `rest_pre_insert_{type}` | Computes a post's declared set at save time into `_content_gates_declared`; rejects unknown keys on REST saves. |
 | `Rendering\Excerpt_Guard` | `inc/rendering/class-excerpt-guard.php` | `get_the_excerpt` 9 and 11 | Builds auto-excerpts from content with withheld Groups removed. |
 | `Rendering\Structured_Data` | `inc/rendering/class-structured-data.php` | `wp_head` | Paywall JSON-LD on crawler variants of gated singular posts. |
-| `Cache_Purge` | `inc/class-cache-purge.php` | `content_gates_segment_changed`, `content_gates_purge_all` | Requests a site-wide purge on configuration changes. |
+| `Cache_Purge` | `inc/class-cache-purge.php` | `content_gates_segment_changed`, `content_gates_crawlers_synced`, `content_gates_purge_all` | Requests one site-wide purge per request on configuration changes. |
 | `REST\Segments_Controller` | `inc/rest/class-segments-controller.php` | `rest_api_init` | `GET content-gates/v1/segments` for the editor, `edit_posts` only. |
 | `Admin\Segment_Admin` | `inc/admin/class-segment-admin.php` | `admin_menu`, `admin_post_*` | Settings > Content Gates. |
 | `Admin\Edge_Notice` | `inc/admin/class-edge-notice.php` | `init`, `admin_notices` | Version skew between the plugin and the Edge Worker. |
