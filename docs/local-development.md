@@ -54,6 +54,13 @@ real entitlement provider and only loads where `WP_ENVIRONMENT_TYPE` is
   curl -s -c jar -D - -o /dev/null -d content_gates_dev_assign=subscriber http://localhost:8890/gated-article/
   ```
 
+- **Through the example provider:** open `/segments/` (or
+  `/?content_gates_provider=1`). The page lists every active reader segment
+  with a checkbox; save, and the browser carries the membership. It is the
+  smallest complete provider, in `examples/segment-provider/`, and shows
+  the write window, the post-redirect-get, and the `no-store` page a real
+  provider needs. No login: anyone can grant themselves anything, which is
+  why it is never deployed.
 - **As an editor:** the admin bar shows **View as** on every front-end page.
   Pick segments and a meter state; the response is `Cache-Control:
   no-store` and never reaches the edge.

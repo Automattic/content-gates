@@ -92,6 +92,7 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `config/`: data shared by the plugin and the Edge Worker (`crawlers.json`)
 - `edge-workers/`: the VIP CLI edge-workers project (`vip edge-workers init` layout): `workers/content-gates/` (manifest + SDK entry), `lib/` (shared pure modules), `sim/` (local simulator), `tests/` (Node tests), `scripts/` (crawler config generator). Its own npm package: `npm run edge:install`
 - `docs/`: docs for humans and agents; start at `docs/README.md`
+- `examples/`: separate plugins that show how to integrate. `segment-provider/` is a toy provider: any reader picks their own segments at `/segments/`. Both wp-env configs map and activate it; it is never deployed
 - `inc/`: server PHP (`class-plugin.php` wires components to hooks; `docs/architecture.md` maps each class)
 - `spec/`: product specification
 - `src/`: block editor code (TypeScript), built by `wp-scripts` into `build/`

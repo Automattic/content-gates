@@ -5,6 +5,7 @@ parameters:
 		- inc
 		- tests/unit
 		- tests/fixtures
+		- examples
 	excludePaths:
 		# Verbatim upstream copy of WPVIP's Vary_Cache; analyzed as a scanned file only.
 		- inc/platform/vendor/class-vary-cache.php
