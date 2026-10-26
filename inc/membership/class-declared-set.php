@@ -261,12 +261,8 @@ final class Declared_Set {
 
 		$this->apply_filter( $query );
 
-		if ( $query->is_singular() && array() !== $this->keys ) {
-			foreach ( $this->segments->crawler_keys() as $crawler_key ) {
-				$this->keys[ $crawler_key ] = true;
-			}
-		}
-
+		// Crawler segments are declared only when an editor assigned them to
+		// a Group, like any other segment. Nothing is added here.
 		$this->close_and_send();
 	}
 

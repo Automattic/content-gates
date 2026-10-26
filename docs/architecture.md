@@ -95,7 +95,7 @@ Reader                         Edge Worker                        Origin (WordPr
   |                              |                                   | init 10: Vary_Cache parses the cookie
   |                              |                                   | init 20: provider assigns/removes (optional)
   |                              |                                   | send_headers: writes close; Vary + cookie sent
-  |                              |                                   | wp MAX: declared set from post meta (+ crawlers); header sent
+  |                              |                                   | wp MAX: declared set from post meta; header sent
   |                              |                                   | template: pre_render_block withholds Groups the reader lacks
   |                              |<----------------------------------|
   |                              |  200  Vary: X-VIP-Go-Segmentation
@@ -187,9 +187,10 @@ Surfaces that bypass block rendering need their own decision:
 The Edge Worker classifies the user agent and injects `crawlers-search=1`
 or `crawlers-ai=1` into the cookie header it forwards to origin, after
 stripping any crawler value the browser sent. Origin treats the value like
-any other membership. On a singular post with a non-empty declared set the
-crawler segments are auto-declared, so `Block_Gate::is_crawler()` can read
-them. On such a response every rendered gated Group gets the classes
+any other membership. A crawler segment is in the declared set only when an
+editor selected it on a Group (no auto-declaration since 2026-10-26), and
+`Block_Gate::is_crawler()` reads it through the declared set. On a crawler
+response to such a post every rendered gated Group gets the classes
 `content-gates-gated content-gates-gated-{n}` (numbered in document order,
 per post) and `wp_head` prints JSON-LD with `isAccessibleForFree: false` and
 one `hasPart` per Group with the matching `cssSelector`. Human responses

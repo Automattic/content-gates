@@ -23,9 +23,11 @@ use function Automattic\VIP\ContentGates\get_declared_segments;
 final class Test_Declared_Set extends Content_Gates_Test_Case {
 
 	/**
-	 * A singular post declares its stored assignments plus the crawler segments.
+	 * A singular post declares exactly its stored assignments. Crawler segments
+	 * are not added on their own (decided 2026-10-26); an editor selects them
+	 * like any other segment.
 	 */
-	public function test_singular_declares_stored_keys_and_crawlers(): void {
+	public function test_singular_declares_only_stored_keys(): void {
 		$this->create_segment( 'Subscriber' );
 		$this->create_segment( 'Donor' );
 		$this->plugin()->segments()->sync_crawlers();
@@ -34,9 +36,15 @@ final class Test_Declared_Set extends Content_Gates_Test_Case {
 
 		$this->request_post( $post_id );
 
-		$this->assertSame( array( 'crawlers-ai', 'crawlers-search', 'subscriber' ), get_declared_segments() );
-		$this->assertSame( 'crawlers-ai, crawlers-search, subscriber', Headers::last( Declared_Set::HEADER_DECLARED ) );
+		$this->assertSame( array( 'subscriber' ), get_declared_segments() );
+		$this->assertSame( 'subscriber', Headers::last( Declared_Set::HEADER_DECLARED ) );
 		$this->assertTrue( $this->plugin()->declared()->is_closed() );
+
+		$this->new_request();
+		$with_crawler = $this->create_gated_post( array( 'subscriber', 'crawlers-search' ) );
+		$this->request_post( $with_crawler );
+
+		$this->assertSame( array( 'crawlers-search', 'subscriber' ), get_declared_segments(), 'A selected crawler segment is declared like any other.' );
 	}
 
 	/**

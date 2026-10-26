@@ -394,7 +394,7 @@ On a response where any crawler segment is `true`, the plugin wraps each rendere
 
 ### Declarations
 
-Crawler reads happen outside blocks, in the structured-data output. The plugin auto-declares every crawler segment on singular posts whose declared set is not empty, so themes never have to declare them. This costs no human variants: a human reader has no crawler value, so the narrowed key is the same with or without the crawler segments.
+Crawler segments enter the declared set the way every other segment does: an editor selects them on a Group. The plugin adds nothing on its own (decided 2026-10-26; it previously auto-declared every crawler segment on gated singular posts). The structured-data output reads the crawler segments through the declared set, so a post whose Groups name no crawler segment is a plain anonymous response for a crawler, with no paywall markup. Declaring a crawler segment costs no human variants: a human reader has no crawler value, so the narrowed key is the same with or without it.
 
 ### Adding, removing, and changing segments
 

@@ -102,6 +102,10 @@ no v1 cookie has ever been deployed.
 different periods survive alternating visits"). Then implement v2
 directly, without a migration path.
 
+## 4. Segment grouping for crawler assignment (2026-10-26)
+
+Crawler segments must now be selected on each Group by hand ([decisions.md](decisions.md), "Crawler assignment"). The convenience the old auto-declaration gave could return as an admin-controlled rule: a segment carries a list of segments that are assigned with it, so selecting `subscribers` on a Group also assigns `crawlers-search` and `crawlers-ai`. Open points: whether the rule expands at save time into the stored attributes (visible, versioned with the post) or at request time (one place to change, but the editor and the header disagree); whether grouping is limited to crawler segments; and who may edit the rule (`manage_options`, on the segment record). Not started.
+
 ## Agreed but not yet done
 
 - **`segment-max-age` on the meter header.** The plugin's cookie lifetime

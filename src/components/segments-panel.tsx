@@ -126,7 +126,7 @@ export function SegmentsPanel( {
 						help={
 							option.crawler
 								? __(
-										'Crawler segment: search and AI crawlers in it receive this Group.',
+										'Crawler segment: select it so search and AI crawlers receive this Group and the post carries paywall structured data for them.',
 										'content-gates'
 									)
 								: undefined
