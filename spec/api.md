@@ -84,21 +84,18 @@ REST requests exit before the `send_headers` action, so `Vary_Cache` never sends
 | --- | --- | --- |
 | `X-WPVIP-Content-Gates-Declared` | Every response that passes the plugin's finalize callback | Sorted group names in the declared set, comma separated; empty when none |
 | `X-WPVIP-Content-Gates-Meter` | The declared set of a singular page contains a meter segment; once per meter. Feeds and REST responses declare the meter but are not article views, so they send no meter header | `{group}; id={post_id}; limit={n}; period={seconds}` |
-| `X-WPVIP-Content-Gates-Edge-Received` | With the declared header | The worker's request markers as origin received them: `lookup=…; record=…; key=…; crawler=…`. `-` is an absent header, `none` a present but empty one. Sanitized to `[A-Za-z0-9_:, -]` |
 
-The first two are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
+Both are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
 
-### Diagnostic headers (added 2026-10-23)
+### Diagnostic headers (added 2026-10-23, reduced 2026-10-26)
 
-Edge Workers expose no logs, so the worker and origin each report what they saw on the response itself. These headers are always sent, on every environment: gating them on a request header would fail exactly when the request snapshot is the thing under test, and gating on a deployment setting would make the live evidence depend on configuration. They reveal nothing the declared header does not already reveal.
+Edge Workers expose no logs, so the edge reports on the response itself. One header is enough next to the declared header, the platform's cache status, and the request cookie; more are added only when a question cannot be answered from these. The header is always sent, on every environment: gating it on a request header would fail exactly when the request snapshot is the thing under test, and gating on a deployment setting would make the live evidence depend on configuration. It reveals nothing the declared header and the cookie do not already reveal.
 
 | Header | Set by | Value |
 | --- | --- | --- |
-| `X-WPVIP-Content-Gates-Edge-Received` | origin | The markers origin saw on the request (table above) |
-| `X-WPVIP-Content-Gates-Edge-Coverage` | worker, phase 3, before the store | `{reason}; lookup={marker}; record={names}` where reason is `covered`, `narrowed-too-far`, `undeclared`, `unsegmented`, or `no-marker`. Stored with the copy, so a hit shows the decision of the miss that created it |
-| `X-WPVIP-Content-Gates-Edge-Meter` | worker, phase 4, per delivery on metered responses | `advanced; meters={n}; age={seconds}` or `skipped; reason={why}; age={seconds}`. `age` echoes the response's `Age`, so a hit is recognizable |
+| `X-WPVIP-Content-Gates-Key` | worker, phase 3, before the store | The key the request resolved to: the narrowed `X-VIP-Go-Segmentation` value, `none` when empty (the anonymous copy), `bypass` when phase 1 left the request alone, `-` when phase 3 could not read phase 1's rewrite. Stored with the copy; a hit resolved to the stored key by definition |
 
-Reading them together: if origin's echo shows `lookup=full` but the worker's coverage header says `no-marker`, the origin-response snapshot did not carry the markers (open platform question 8). If both show `-`, phase 1 did not rewrite the request (question 1).
+Reading it with the declared header: a declared set with key `-` means phase 1's rewrite did not reach phase 3 (open platform question 8, or phase 1 did not run, question 1). A segmented response (`Vary` names the segmentation header) with no declared header is an origin fault; phase 3 marks both cases `no-store`.
 
 The worker sends one request header to origin, `X-WPVIP-Content-Gates-Edge`, carrying the version of `config/crawlers.json` it was built with. The plugin compares it with its own copy and shows an admin notice on a mismatch.
 

@@ -40,7 +40,6 @@ import {
 	parseMeterHeader,
 	serializeMeterCookie,
 } from './meter.ts';
-import { parseNonNegativeInt } from './httpdate.ts';
 import {
 	Groups,
 	isToken,
@@ -66,7 +65,7 @@ export const LOOKUP_HEADER: string = 'x-wpvip-content-gates-lookup';
 export const RECORD_HEADER: string = 'x-wpvip-content-gates-record';
 
 /** Phase 1 -> 3 marker: the KV key for this URL. */
-export const KEY_HEADER: string = 'x-wpvip-content-gates-key';
+export const KV_KEY_HEADER: string = 'x-wpvip-content-gates-kv';
 
 /** Phase 1 marker: crawler groups the worker classified, comma separated. */
 export const CRAWLER_HEADER: string = 'x-wpvip-content-gates-crawler';
@@ -78,17 +77,22 @@ export const DECLARED_HEADER: string = 'x-wpvip-content-gates-declared';
 export const METER_HEADER: string = 'x-wpvip-content-gates-meter';
 
 /**
- * Response header phase 3 sets with its decision. Stored with the copy, so
- * a hit shows the decision of the miss that created it (always `covered`).
- * Edge Workers expose no logs; this and origin's echo of the request
- * markers (`X-WPVIP-Content-Gates-Edge-Received`) are how a live failure
- * is localized from outside.
+ * Response header phase 3 sets with the key the request resolved to: the
+ * narrowed `X-VIP-Go-Segmentation` value phase 1 built, `none` when that
+ * value was empty, `bypass` when phase 1 left the request alone, and `-`
+ * when phase 3 could not read phase 1's rewrite. It is stored with the
+ * copy. A hit is by definition a request that resolved to the stored
+ * copy's key, so the header reads the same on hits and misses. Edge
+ * Workers expose no logs; with origin's declared header this is the
+ * evidence of what the edge did.
  */
-export const COVERAGE_HEADER: string = 'x-wpvip-content-gates-edge-coverage';
+export const KEY_HEADER: string = 'x-wpvip-content-gates-key';
 
-/** Response header phase 4 sets per delivery on metered responses. */
-export const METER_DIAGNOSTIC_HEADER: string =
-	'x-wpvip-content-gates-edge-meter';
+/** `KEY_HEADER` value for an empty narrowed key: the anonymous copy. */
+export const KEY_NONE: string = 'none';
+
+/** `KEY_HEADER` value when phase 3 saw no segmentation from phase 1. */
+export const KEY_UNKNOWN: string = '-';
 
 export const LOOKUP_FULL: string = 'full';
 export const LOOKUP_NARROWED: string = 'narrowed';
@@ -143,8 +147,6 @@ export class ClientRequestOutput {
 	crawler: string = '';
 	/** Value for `X-WPVIP-Content-Gates-Edge`. */
 	edgeVersion: string = '';
-	/** Decoded record keys, for diagnostics; null when no record. */
-	recordNames: string[] | null = null;
 }
 
 /**
@@ -188,7 +190,6 @@ export function onClientRequestPure(
 		);
 		out.lookup = LOOKUP_NARROWED;
 		out.recordKeys = joinNames( record );
-		out.recordNames = record;
 	}
 
 	// 4. The cookie origin sees: the reader's groups plus the worker's
@@ -216,6 +217,8 @@ export class OriginResponseInput {
 	lookup: string | null = null;
 	/** `x-wpvip-content-gates-record` from the origin-socket request. */
 	recordKeys: string | null = null;
+	/** `x-vip-go-segmentation` from the origin-socket request. */
+	segmentation: string | null = null;
 }
 
 export class OriginResponseOutput {
@@ -223,40 +226,35 @@ export class OriginResponseOutput {
 	noStore: bool = false;
 	/** New KV record to write, or null to leave the record alone. */
 	record: string | null = null;
-	/** Why, for logs and the simulator. */
+	/** Why, for tests and the simulator's log. */
 	reason: string = '';
-	/** Value for `COVERAGE_HEADER`: the reason and the markers as read. */
-	diagnostic: string = '';
+	/** Value for `KEY_HEADER`. */
+	key: string = KEY_UNKNOWN;
 }
 
 /**
- * Compose the phase 3 diagnostic: `<reason>; lookup=<marker>; record=<names>`.
+ * The `KEY_HEADER` value: the key phase 1 resolved the request to, as
+ * phase 3 read it back from the origin-socket request.
  *
- * Markers are echoed as read, so the header says what phase 3 saw, not
- * what phase 1 meant: `-` is an absent marker, `none` a present but empty
- * one (a full lookup writes an empty record marker; a narrowed lookup
- * with an empty declared set does too), `?` a value that is not a token.
- *
- * @param reason     Decision reason.
- * @param lookup     Lookup marker, or null.
- * @param recordKeys Record marker, or null.
- * @return The header value.
+ * @param lookup       Lookup marker, or null.
+ * @param segmentation Narrowed segmentation value, or null.
+ * @return `bypass`, `-`, `none`, or the narrowed value.
  */
-export function coverageDiagnostic(
-	reason: string,
+export function resolvedKey(
 	lookup: string | null,
-	recordKeys: string | null
+	segmentation: string | null
 ): string {
-	let lookupPart = '-';
-	if ( lookup !== null ) {
-		lookupPart = isToken( lookup ) ? lookup : '?';
+	if ( lookup !== null && lookup == LOOKUP_BYPASS ) {
+		return LOOKUP_BYPASS;
 	}
-	let recordPart = '-';
-	if ( recordKeys !== null ) {
-		const names = parseNameList( recordKeys );
-		recordPart = names.length == 0 ? 'none' : names.join( ',' );
+	if ( segmentation === null ) {
+		return KEY_UNKNOWN;
 	}
-	return reason + '; lookup=' + lookupPart + '; record=' + recordPart;
+	const value = segmentation.trim();
+	if ( value.length == 0 ) {
+		return KEY_NONE;
+	}
+	return isToken( value ) ? value : KEY_UNKNOWN;
 }
 
 /**
@@ -279,8 +277,9 @@ export function variesOnSegmentation( vary: string | null ): bool {
 }
 
 /**
- * Phase 3 decision logic: coverage check, then record update, then the
- * diagnostic that reports both.
+ * Phase 3 decision logic: coverage check, then record update. The key
+ * header is reported whatever the decision, so a no-store response still
+ * says what it was looked up under.
  *
  * @param input Response and request facts.
  * @return What to do with the response and the record.
@@ -288,25 +287,8 @@ export function variesOnSegmentation( vary: string | null ): bool {
 export function onOriginResponsePure(
 	input: OriginResponseInput
 ): OriginResponseOutput {
-	const out = decideOriginResponse( input );
-	out.diagnostic = coverageDiagnostic(
-		out.reason,
-		input.lookup,
-		input.recordKeys
-	);
-	return out;
-}
-
-/**
- * The phase 3 decision without its diagnostic.
- *
- * @param input Response and request facts.
- * @return What to do with the response and the record.
- */
-function decideOriginResponse(
-	input: OriginResponseInput
-): OriginResponseOutput {
 	const out = new OriginResponseOutput();
+	out.key = resolvedKey( input.lookup, input.segmentation );
 	const lookup = input.lookup;
 	const recordHeader = input.recordKeys;
 
@@ -405,34 +387,6 @@ export class ClientResponseOutput {
 	setCookies: string[] = [];
 	/** Why the response was left alone, when `replace` is false. */
 	skipped: string = '';
-	/** How many meter headers were advanced. */
-	metersAdvanced: i32 = 0;
-}
-
-/**
- * Compose the phase 4 diagnostic for `METER_DIAGNOSTIC_HEADER`:
- * `advanced; meters=<n>; age=<seconds>` or `skipped; reason=<why>; age=…`.
- *
- * `age` echoes the response's `Age` header (`-` when absent, `?` when not
- * a number). A cache sets `Age` on hits, so this is the external evidence
- * that the meter advanced on a hit.
- *
- * @param out Phase 4 output.
- * @param age The response's `Age` header, or null.
- * @return The header value.
- */
-export function meterDiagnostic(
-	out: ClientResponseOutput,
-	age: string | null
-): string {
-	let agePart = '-';
-	if ( age !== null ) {
-		agePart = parseNonNegativeInt( age ) >= 0 ? age.trim() : '?';
-	}
-	const head = out.replace
-		? 'advanced; meters=' + out.metersAdvanced.toString()
-		: 'skipped; reason=' + out.skipped;
-	return head + '; age=' + agePart;
 }
 
 /**
@@ -551,7 +505,6 @@ export function onClientResponsePure(
 	}
 
 	out.replace = true;
-	out.metersAdvanced = advanced;
 	for ( let i = 0; i < kept.length; i++ ) {
 		out.setCookies.push( kept[ i ] );
 	}

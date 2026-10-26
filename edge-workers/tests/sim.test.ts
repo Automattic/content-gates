@@ -439,22 +439,14 @@ test( 'an origin assignment on a metered miss reaches the browser once, with the
 test( 'diagnostic headers travel with the copy (phase 3) and per delivery (phase 4)', async () => {
 	const miss = await get( '/article-1/', { 'user-agent': CHROME } );
 	assert.equal( miss.headers.get( 'x-edge-sim' ), 'MISS' );
-	assert.equal(
-		miss.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
-		'covered; lookup=full; record=none'
-	);
-	assert.equal(
-		miss.headers.get( 'x-wpvip-content-gates-edge-meter' ),
-		null,
-		'unmetered responses carry no meter diagnostic'
-	);
+	assert.equal( miss.headers.get( 'x-wpvip-content-gates-key' ), 'none' );
 
 	const hit = await get( '/article-1/', { 'user-agent': CHROME } );
 	assert.equal( hit.headers.get( 'x-edge-sim' ), 'HIT' );
 	assert.equal(
-		hit.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
-		'covered; lookup=full; record=none',
-		'a hit shows the decision of the miss that stored it'
+		hit.headers.get( 'x-wpvip-content-gates-key' ),
+		'none',
+		"a hit resolved to the stored copy's key by definition"
 	);
 
 	const narrowed = await get( '/article-1/', {
@@ -463,32 +455,26 @@ test( 'diagnostic headers travel with the copy (phase 3) and per delivery (phase
 	} );
 	assert.equal( narrowed.headers.get( 'x-edge-sim' ), 'MISS' );
 	assert.equal(
-		narrowed.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
-		'covered; lookup=narrowed; record=crawlers-ai,crawlers-search,subscriber'
+		narrowed.headers.get( 'x-wpvip-content-gates-key' ),
+		'vc-v1__subscriber_--_1'
 	);
 
 	const undeclared = await get( '/undeclared/', { 'user-agent': CHROME } );
 	assert.equal(
-		undeclared.headers.get( 'x-wpvip-content-gates-edge-coverage' ),
-		'undeclared; lookup=full; record=none'
+		undeclared.headers.get( 'x-wpvip-content-gates-key' ),
+		'none',
+		'a no-store response still reports the key it resolved to'
+	);
+	assert.equal(
+		undeclared.headers.get( 'x-wpvip-content-gates-declared' ),
+		null,
+		'the missing declared header is the evidence of the origin fault'
 	);
 
-	const metered = await get( '/metered/', { 'user-agent': CHROME } );
+	const bot = await get( '/article-1/', { 'user-agent': GOOGLEBOT } );
 	assert.equal(
-		metered.headers.get( 'x-wpvip-content-gates-edge-meter' ),
-		'advanced; meters=1; age=-'
-	);
-	const meteredHit = await get( '/metered/', { 'user-agent': CHROME } );
-	assert.equal( meteredHit.headers.get( 'x-edge-sim' ), 'HIT' );
-	assert.match(
-		meteredHit.headers.get( 'x-wpvip-content-gates-edge-meter' ) ?? '',
-		/^advanced; meters=1; age=\d+$/,
-		'Age is present on a hit'
-	);
-	const bot = await get( '/metered/', { 'user-agent': GOOGLEBOT } );
-	assert.match(
-		bot.headers.get( 'x-wpvip-content-gates-edge-meter' ) ?? '',
-		/^skipped; reason=crawler; age=/
+		bot.headers.get( 'x-wpvip-content-gates-key' ),
+		'vc-v1__crawlers-search_--_1'
 	);
 } );
 
@@ -542,10 +528,7 @@ test( 'pass-through requests are forwarded and never cached', async () => {
 	} );
 	assert.equal( editor.headers.get( 'x-edge-sim' ), 'PASS' );
 	assert.deepEqual( editor.headers.getSetCookie(), [] );
-	assert.equal(
-		editor.headers.get( 'x-wpvip-content-gates-edge-meter' ),
-		'skipped; reason=bypass; age=-'
-	);
+	assert.equal( editor.headers.get( 'x-wpvip-content-gates-key' ), 'bypass' );
 } );
 
 test( 'REST responses are cacheable like any GET', async () => {

@@ -31,22 +31,20 @@ import { crawlerVersion } from '../../../lib/crawlers.ts';
 import { Crypto } from '../../../lib/crypto.ts';
 import { responseTime } from '../../../lib/httpdate.ts';
 import {
-	COVERAGE_HEADER,
 	CRAWLER_HEADER,
 	ClientRequestInput,
 	ClientResponseInput,
 	DECLARED_HEADER,
 	EDGE_VERSION_HEADER,
 	KEY_HEADER,
+	KV_KEY_HEADER,
 	LOOKUP_BYPASS,
 	LOOKUP_HEADER,
-	METER_DIAGNOSTIC_HEADER,
 	METER_HEADER,
 	OriginResponseInput,
 	RECORD_HEADER,
 	SEGMENTATION_HEADER,
 	kvKeyFor,
-	meterDiagnostic,
 	onClientRequestPure,
 	onClientResponsePure,
 	onOriginResponsePure,
@@ -131,8 +129,8 @@ onClientRequest( ( req: Request ): void => {
 	req.headers.set( EDGE_VERSION_HEADER, crawlerVersion() );
 
 	// Requests the cache can never store under a segmented key skip the KV
-	// read and every rewrite (see lib/bypass.ts). The marker tells origin's
-	// echo that the worker ran, and tells phase 3 to store nothing.
+	// read and every rewrite (see lib/bypass.ts). The marker tells phase 3
+	// to store nothing and to report the key as `bypass`.
 	const cookie = req.headers.get( 'cookie' );
 	const reason = bypassReason(
 		req.method,
@@ -158,7 +156,7 @@ onClientRequest( ( req: Request ): void => {
 	req.headers.set( SEGMENTATION_HEADER, out.segmentation );
 	req.headers.set( LOOKUP_HEADER, out.lookup );
 	req.headers.set( RECORD_HEADER, out.recordKeys );
-	req.headers.set( KEY_HEADER, key );
+	req.headers.set( KV_KEY_HEADER, key );
 	req.headers.set( CRAWLER_HEADER, out.crawler );
 
 	if ( out.cookie.length == 0 ) {
@@ -178,19 +176,21 @@ onOriginResponse( ( resp: Response ): void => {
 	input.declared = resp.headers.get( DECLARED_HEADER );
 	input.lookup = snapshot.headers.get( LOOKUP_HEADER );
 	input.recordKeys = snapshot.headers.get( RECORD_HEADER );
+	input.segmentation = snapshot.headers.get( SEGMENTATION_HEADER );
 
 	const out = onOriginResponsePure( input );
 
-	// Always, so the stored copy says why it was storable and a miss says
-	// why it was not. Edge Workers have no logs; this header is the log.
-	resp.headers.set( COVERAGE_HEADER, out.diagnostic );
+	// Always, stored with the copy: the key this request resolved to.
+	// Edge Workers have no logs; this header and origin's declared header
+	// are the evidence.
+	resp.headers.set( KEY_HEADER, out.key );
 
 	if ( out.noStore ) {
 		resp.setCacheControl( 'no-store' );
 	}
 
 	const record = out.record;
-	const key = snapshot.headers.get( KEY_HEADER );
+	const key = snapshot.headers.get( KV_KEY_HEADER );
 	if ( record !== null && key !== null ) {
 		KV.setText( key, record );
 	}
@@ -219,10 +219,6 @@ onClientResponse( ( resp: Response ): void => {
 	);
 
 	const out = onClientResponsePure( input, crypto );
-	resp.headers.set(
-		METER_DIAGNOSTIC_HEADER,
-		meterDiagnostic( out, resp.headers.get( 'age' ) )
-	);
 	if ( ! out.replace ) {
 		return;
 	}

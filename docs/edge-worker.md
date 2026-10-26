@@ -180,7 +180,7 @@ and exposes in phase 3 through `resp.request` (the origin-socket snapshot):
 | --- | --- |
 | `x-wpvip-content-gates-lookup` | `full` or `narrowed` |
 | `x-wpvip-content-gates-record` | Record keys phase 1 narrowed with, `donor, subscriber` format |
-| `x-wpvip-content-gates-key` | The KV key, so phase 3 writes the same record phase 1 read |
+| `x-wpvip-content-gates-kv` | The KV key, so phase 3 writes the same record phase 1 read |
 | `x-wpvip-content-gates-crawler` | Crawler groups matched, comma separated (diagnostic) |
 
 Phase 4's `resp.request` is the **client-socket snapshot before phase 1
@@ -192,33 +192,35 @@ Origin sees the marker headers. They are harmless and useful in logs.
 
 ## Diagnostic headers
 
-Edge Workers expose no logs. The worker therefore reports its decisions on
-the response, and origin echoes what it received, so a live failure can be
-localized from outside with `curl -sI`. Both are always on; see
-`spec/api.md`, "Diagnostic headers", for why they are not gated.
+Edge Workers expose no logs. Two response headers are the evidence of what
+origin and the edge did, readable from outside with `curl -sI`. Both are
+always on; see `spec/api.md`, "Diagnostic headers", for why they are not
+gated.
 
-| Header | Who | When | Value |
-| --- | --- | --- | --- |
-| `X-WPVIP-Content-Gates-Edge-Received` | origin | with the declared header | `lookup=…; record=…; key=…; crawler=…` as received; `-` absent, `none` empty |
-| `X-WPVIP-Content-Gates-Edge-Coverage` | phase 3 | before the store, so it rides with the copy | `{reason}; lookup={marker}; record={names}` |
-| `X-WPVIP-Content-Gates-Edge-Meter` | phase 4 | per delivery, metered responses only | `advanced; meters={n}; age={s}` or `skipped; reason={why}; age={s}` |
-
-How to read a pair of responses:
-
-| Origin echo | Worker coverage | Meaning |
+| Header | Who | Value |
 | --- | --- | --- |
-| `lookup=full` | `covered; lookup=full` | Phase 1 rewrote the request and phase 3 saw it. The design's two platform assumptions hold |
-| `lookup=full` | `no-marker; lookup=-` | Origin saw the markers; `resp.request` did not carry them. Open question 8, answered: no |
-| `lookup=-` | `no-marker; lookup=-` | Phase 1 did not run or could not write request headers. Open question 1 |
-| `lookup=narrowed` | `narrowed-too-far` | The KV record was stale and narrower than the declared set; the response was `no-store` and the record replaced |
+| `X-WPVIP-Content-Gates-Declared` | origin | The groups this URL may read, sorted |
+| `X-WPVIP-Content-Gates-Key` | phase 3, before the store | The key the request resolved to: the narrowed `X-VIP-Go-Segmentation` value, `none` for the anonymous copy, `bypass` when phase 1 left the request alone, `-` when phase 3 could not read phase 1's rewrite |
 
-The coverage header on a hit is always `covered`: it is the decision of the
-miss that stored the copy. The meter header is per delivery, so on a hit
-its `age` is the platform's `Age` value and proves the meter advanced
-without origin.
+The key header is stored with the copy. A hit is by definition a request
+that resolved to the stored copy's key, so the header is correct on hits
+and misses alike. It is written whatever phase 3 decided, so a `no-store`
+response still says what it was looked up under.
 
-The simulator sets the same headers, next to its own `X-Edge-Sim-*`, so a
-local run and a live run read the same way.
+How to read a response, with the platform's cache status and the request
+cookie next to it:
+
+| Declared | Key | Meaning |
+| --- | --- | --- |
+| `1-subscribers, …` | `none` | Anonymous copy. The reader held none of the declared groups, or the record narrowed them all away |
+| `1-subscribers, …` | `vc-v1__1-subscribers_--_1` | The subscriber copy |
+| `1-subscribers, …` | `vc-v1__1-subscribers_--_1---__newsletter_--_1` | Narrowing failed to drop `newsletter`: no record yet (first request since purge) or a stale one |
+| present | `-` | Phase 3 ran but saw no segmentation from phase 1: phase 1 did not run, or `resp.request` does not carry its rewrite (open question 8). Phase 3 marks the response `no-store` |
+| present, `Vary` set | header absent | The worker did not run phase 3 on this response |
+| absent, `Vary` set | any | Origin fault: a segmented response with no declared set. Phase 3 marks it `no-store` |
+
+The simulator sets the same key header, next to its own `X-Edge-Sim-*`, so
+a local run and a live run read the same way.
 
 ## KV record layout
 

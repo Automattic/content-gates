@@ -211,11 +211,11 @@ They exist so a failure is observable without re-instrumenting:
   records; `POST /__edge/reset` clears them. Every response carries
   `X-Edge-Sim`, `X-Edge-Sim-Key`, and `X-Edge-Sim-Record`.
 - **Diagnostic response headers**, always on: origin's
-  `X-WPVIP-Content-Gates-Edge-Received` (the worker's request markers as
-  origin saw them), the worker's `X-WPVIP-Content-Gates-Edge-Coverage`
-  (phase 3's decision, stored with the copy) and
-  `X-WPVIP-Content-Gates-Edge-Meter` (phase 4, per delivery). Edge Workers
-  have no logs; `docs/edge-worker.md` has the reading table.
+  `X-WPVIP-Content-Gates-Declared` (what the URL may read) and the worker's
+  `X-WPVIP-Content-Gates-Key` (the key the request resolved to, phase 3,
+  stored with the copy; `none`, `bypass`, or `-` when phase 1's rewrite was
+  not visible). Edge Workers have no logs; `docs/edge-worker.md` has the
+  reading table.
 - **`?content_gates_demo=1`** on any dev front-end page shows the declared
   set and Join/Leave buttons per segment (local only, never cached).
 - **`wp content-gates list`** and **`wp content-gates declared <id>`** show

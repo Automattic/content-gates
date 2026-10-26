@@ -91,7 +91,7 @@ test( 'phase 3 never stores a response phase 1 bypassed', () => {
 	assert.equal( out.noStore, true );
 	assert.equal( out.reason, 'bypassed' );
 	assert.equal( out.record, null );
-	assert.equal( out.diagnostic, 'bypassed; lookup=bypass; record=-' );
+	assert.equal( out.key, 'bypass' );
 
 	// A static file is unsegmented: nothing to do, as before.
 	const asset = new OriginResponseInput();

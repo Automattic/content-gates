@@ -25,22 +25,20 @@ import { Crypto } from '../lib/crypto.ts';
 import { decodeRecord } from '../lib/declared.ts';
 import { responseTime } from '../lib/httpdate.ts';
 import {
-	COVERAGE_HEADER,
 	CRAWLER_HEADER,
 	ClientRequestInput,
 	ClientResponseInput,
 	DECLARED_HEADER,
 	EDGE_VERSION_HEADER,
 	KEY_HEADER,
+	KV_KEY_HEADER,
 	LOOKUP_BYPASS,
 	LOOKUP_HEADER,
-	METER_DIAGNOSTIC_HEADER,
 	METER_HEADER,
 	OriginResponseInput,
 	RECORD_HEADER,
 	SEGMENTATION_HEADER,
 	kvKeyFor,
-	meterDiagnostic,
 	onClientRequestPure,
 	onClientResponsePure,
 	onOriginResponsePure,
@@ -372,11 +370,6 @@ export async function startEdgeSim(
 			getHeader( headers, 'age' )
 		);
 		const out = onClientResponsePure( input, nodeCrypto );
-		setHeader(
-			headers,
-			METER_DIAGNOSTIC_HEADER,
-			meterDiagnostic( out, getHeader( headers, 'age' ) )
-		);
 		if ( out.replace ) {
 			deleteHeader( headers, 'set-cookie' );
 			for ( const value of out.setCookies ) {
@@ -585,6 +578,7 @@ export async function startEdgeSim(
 			log( method + ' ' + url + ' bypass=' + bypass );
 			const result = await forward( method, url, originHeaders, body );
 			const headers: HeaderList = result.headers.slice();
+			setHeader( headers, KEY_HEADER, LOOKUP_BYPASS );
 			clientResponsePhase( headers, clientHeaders, method, url );
 			log( '  PASS ' + result.status );
 			deliver(
@@ -614,7 +608,7 @@ export async function startEdgeSim(
 		setHeader( originHeaders, SEGMENTATION_HEADER, phase1.segmentation );
 		setHeader( originHeaders, LOOKUP_HEADER, phase1.lookup );
 		setHeader( originHeaders, RECORD_HEADER, phase1.recordKeys );
-		setHeader( originHeaders, KEY_HEADER, key );
+		setHeader( originHeaders, KV_KEY_HEADER, key );
 		setHeader( originHeaders, CRAWLER_HEADER, phase1.crawler );
 		if ( phase1.cookie.length === 0 ) {
 			deleteHeader( originHeaders, 'cookie' );
@@ -672,8 +666,9 @@ export async function startEdgeSim(
 		phase3Input.declared = getHeader( headers, DECLARED_HEADER );
 		phase3Input.lookup = phase1.lookup;
 		phase3Input.recordKeys = phase1.recordKeys;
+		phase3Input.segmentation = phase1.segmentation;
 		const phase3 = onOriginResponsePure( phase3Input );
-		setHeader( headers, COVERAGE_HEADER, phase3.diagnostic );
+		setHeader( headers, KEY_HEADER, phase3.key );
 		if ( phase3.noStore ) {
 			// The SDK's setCacheControl() writes both of these.
 			setHeader( headers, 'cache-control', 'no-store' );

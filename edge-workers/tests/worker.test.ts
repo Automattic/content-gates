@@ -16,6 +16,7 @@ import {
 	onClientRequestPure,
 	onClientResponsePure,
 	onOriginResponsePure,
+	resolvedKey,
 } from '../lib/worker.ts';
 import { DAY, NOW, nodeCrypto } from './helpers.ts';
 
@@ -473,4 +474,29 @@ test( 'cookie helpers', () => {
 	assert.equal( withCookie( 'a=1; b=2; a=3', 'a', '9' ), 'a=9; b=2' );
 	assert.equal( withCookie( 'a=1', 'a', null ), '' );
 	assert.equal( withCookie( null, 'a', '1' ), 'a=1' );
+} );
+
+test( 'phase 3 reports the key the request resolved to', () => {
+	assert.equal( resolvedKey( 'full', '' ), 'none' );
+	assert.equal(
+		resolvedKey( 'narrowed', 'vc-v1__subscriber_--_1' ),
+		'vc-v1__subscriber_--_1'
+	);
+	assert.equal( resolvedKey( 'bypass', null ), 'bypass' );
+	assert.equal( resolvedKey( null, null ), '-', 'phase 1 rewrite not seen' );
+	assert.equal( resolvedKey( 'full', 'not a token' ), '-' );
+
+	const input = new OriginResponseInput();
+	input.vary = 'X-VIP-Go-Segmentation';
+	input.declared = 'newsletter, subscriber';
+	input.lookup = 'narrowed';
+	input.recordKeys = 'subscriber';
+	input.segmentation = 'vc-v1__subscriber_--_1';
+	const out = onOriginResponsePure( input );
+	assert.equal( out.noStore, true, 'narrowed too far' );
+	assert.equal(
+		out.key,
+		'vc-v1__subscriber_--_1',
+		'a no-store response still says what it was looked up under'
+	);
 } );

@@ -36,9 +36,8 @@ a WPVIP application before any of it is a product claim.
    on the deployed runtime? The SDK README says it needs runtime support.
    When the markers are absent, phase 3 sets `no-store` on every segmented
    response, so the failure costs cache hits, not safety. The answer is
-   readable from outside: origin's `X-WPVIP-Content-Gates-Edge-Received`
-   shows `lookup=full` while the worker's
-   `X-WPVIP-Content-Gates-Edge-Coverage` shows `no-marker` (see
+   readable from outside: `X-WPVIP-Content-Gates-Key` reads `-` on a
+   response that carries a declared set (see
    [edge-worker.md](edge-worker.md#diagnostic-headers)).
 9. Does VIP's site purge (`WPCOM_VIP_Cache_Manager::purge_site_cache()`)
    exist under that name and purge every variant? The default listener
