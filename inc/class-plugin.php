@@ -281,25 +281,13 @@ final class Plugin {
 	/**
 	 * Replace the per-request components. For tests, which run many requests in one process.
 	 *
+	 * The caller removes the old instances' callbacks first; see
+	 * `Content_Gates_Test_Case::unhook_stale_instances()`. Nothing here
+	 * unhooks, so this method need not mirror each component's `register()`.
+	 *
 	 * @since 0.1.0
 	 */
 	public function reset_request_state(): void {
-		remove_action( 'wp', array( $this->declared, 'finalize_page' ), PHP_INT_MAX );
-		remove_filter( 'the_content', array( $this->declared, 'merge_rendering_post' ), 1 );
-		remove_filter( 'rest_pre_serve_request', array( $this->declared, 'finalize_rest_if_served' ), PHP_INT_MAX );
-		remove_filter( 'rest_pre_echo_response', array( $this->declared, 'finalize_rest' ), PHP_INT_MAX );
-		remove_action( 'init', array( $this->membership, 'register_groups' ), 5 );
-		remove_action( 'send_headers', array( $this->membership, 'close_writes' ), PHP_INT_MAX - 1 );
-		remove_action( 'content_gates_rest_headers_sent', array( $this->membership, 'send_rest_headers' ) );
-		remove_action( 'vip_vary_cache_did_send_headers', array( $this->membership, 'expire_empty_cookie' ), 10 );
-		remove_filter( 'register_block_type_args', array( $this->gate, 'register_attributes' ), 10 );
-		remove_filter( 'pre_render_block', array( $this->gate, 'withhold' ), 10 );
-		remove_filter( 'render_block_data', array( $this->gate, 'stamp_index' ), 10 );
-		remove_filter( 'render_block_' . Block_Gate::BLOCK, array( $this->gate, 'mark_for_crawlers' ), 10 );
-		remove_filter( 'get_the_excerpt', array( $this->excerpt_guard, 'build' ), 9 );
-		remove_filter( 'get_the_excerpt', array( $this->excerpt_guard, 'restore' ), 11 );
-		remove_action( 'wp_footer', array( $this->structured_data, 'print_json_ld' ), 10 );
-
 		$this->segments->flush();
 		$this->cache_purge->reset();
 
