@@ -170,7 +170,7 @@ test( 'two readers who differ only in an undeclared segment share one copy', asy
 	} );
 	assert.equal( first.headers.get( 'x-edge-sim' ), 'MISS' );
 	assert.equal(
-		first.headers.get( 'x-edge-sim-key' ),
+		first.headers.get( 'x-wpvip-content-gates-key' ),
 		'vc-v1__subscriber_--_1'
 	);
 	assert.equal( first.headers.get( 'x-origin-edge' ), '1' );
@@ -186,7 +186,7 @@ test( 'two readers who differ only in an undeclared segment share one copy', asy
 	} );
 	assert.equal( second.headers.get( 'x-edge-sim' ), 'HIT' );
 	assert.equal(
-		second.headers.get( 'x-edge-sim-key' ),
+		second.headers.get( 'x-wpvip-content-gates-key' ),
 		'vc-v1__subscriber_--_1'
 	);
 	assert.equal( await second.text(), 'seg=vc-v1__subscriber_--_1' );
@@ -199,7 +199,7 @@ test( 'two readers who differ only in an undeclared segment share one copy', asy
 	// Anonymous and newsletter-only readers share the anonymous copy.
 	const anon = await get( '/article-1/', { 'user-agent': CHROME } );
 	assert.equal( anon.headers.get( 'x-edge-sim' ), 'MISS' );
-	assert.equal( anon.headers.get( 'x-edge-sim-key' ), '-' );
+	assert.equal( anon.headers.get( 'x-wpvip-content-gates-key' ), 'none' );
 	const newsletter = await get( '/article-1/', {
 		cookie: 'vip-go-seg=vc-v1__newsletter_--_1',
 		'user-agent': CHROME,
@@ -224,13 +224,13 @@ test( 'a page that declares nothing has one copy for everyone', async () => {
 		'user-agent': CHROME,
 	} );
 	assert.equal( learned.headers.get( 'x-edge-sim' ), 'MISS' );
-	assert.equal( learned.headers.get( 'x-edge-sim-key' ), '-' );
+	assert.equal( learned.headers.get( 'x-wpvip-content-gates-key' ), 'none' );
 	const other = await get( '/about/', {
 		cookie: 'vip-go-seg=vc-v1__donor_--_1---__newsletter_--_1',
 		'user-agent': CHROME,
 	} );
 	assert.equal( other.headers.get( 'x-edge-sim' ), 'HIT' );
-	assert.equal( other.headers.get( 'x-edge-sim-key' ), '-' );
+	assert.equal( other.headers.get( 'x-wpvip-content-gates-key' ), 'none' );
 	assert.equal( other.headers.get( 'x-edge-sim-record' ), '(empty)' );
 } );
 
@@ -255,7 +255,7 @@ test( 'a too-narrow record causes no-store, then the record widens', async () =>
 	} );
 	assert.equal( narrowed.headers.get( 'x-edge-sim' ), 'MISS' );
 	assert.equal(
-		narrowed.headers.get( 'x-edge-sim-key' ),
+		narrowed.headers.get( 'x-wpvip-content-gates-key' ),
 		'vc-v1__subscriber_--_1'
 	);
 	assert.equal( narrowed.headers.get( 'cache-control' ), 'no-store' );
@@ -281,7 +281,7 @@ test( 'a too-narrow record causes no-store, then the record widens', async () =>
 	} );
 	assert.equal( widened.headers.get( 'x-edge-sim' ), 'MISS' );
 	assert.equal(
-		widened.headers.get( 'x-edge-sim-key' ),
+		widened.headers.get( 'x-wpvip-content-gates-key' ),
 		'vc-v1__newsletter_--_1---__subscriber_--_1'
 	);
 	assert.equal(
@@ -320,7 +320,7 @@ test( 'a crawler gets the crawler-keyed copy and no Set-Cookie', async () => {
 	} );
 	assert.equal( bot.headers.get( 'x-edge-sim' ), 'MISS' );
 	assert.equal(
-		bot.headers.get( 'x-edge-sim-key' ),
+		bot.headers.get( 'x-wpvip-content-gates-key' ),
 		'vc-v1__crawlers-search_--_1---__subscriber_--_1'
 	);
 	assert.equal(
@@ -332,7 +332,7 @@ test( 'a crawler gets the crawler-keyed copy and no Set-Cookie', async () => {
 
 	const again = await get( '/article-1/', { 'user-agent': GOOGLEBOT } );
 	assert.equal(
-		again.headers.get( 'x-edge-sim-key' ),
+		again.headers.get( 'x-wpvip-content-gates-key' ),
 		'vc-v1__crawlers-search_--_1'
 	);
 	assert.equal( again.headers.get( 'x-edge-sim' ), 'MISS' );
@@ -353,7 +353,7 @@ test( 'a forged crawler cookie from a browser gains nothing', async () => {
 		'HIT',
 		'shares the anonymous copy'
 	);
-	assert.equal( forged.headers.get( 'x-edge-sim-key' ), '-' );
+	assert.equal( forged.headers.get( 'x-wpvip-content-gates-key' ), 'none' );
 	const miss = await get( '/article-1/?v=2', {
 		'user-agent': CHROME,
 		cookie: 'other=1; vip-go-seg=vc-v1__crawlers-ai_--_1',
@@ -382,7 +382,7 @@ test( 'metered views advance the cookie on cache hits', async () => {
 	} );
 	assert.equal( second.headers.get( 'x-edge-sim' ), 'MISS' );
 	assert.equal(
-		second.headers.get( 'x-edge-sim-key' ),
+		second.headers.get( 'x-wpvip-content-gates-key' ),
 		'vc-v1__metered-articles_--_open'
 	);
 	assert.equal(

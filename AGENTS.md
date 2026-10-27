@@ -210,7 +210,8 @@ They exist so a failure is observable without re-instrumenting:
   `npx playwright show-trace <trace.zip>`.
 - **Edge simulator**: `GET /__edge/stats` lists stored copies and KV
   records; `POST /__edge/reset` clears them. Every response carries
-  `X-Edge-Sim`, `X-Edge-Sim-Key`, and `X-Edge-Sim-Record`.
+  `X-Edge-Sim` and `X-Edge-Sim-Record`; the worker's own key header is
+  on every response too.
 - **Diagnostic response headers**, always on: origin's
   `X-WPVIP-Content-Gates-Declared` (what the URL may read) and the worker's
   `X-WPVIP-Content-Gates-Key` (the key the request resolved to, phase 3,

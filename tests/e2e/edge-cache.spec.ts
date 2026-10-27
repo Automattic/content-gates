@@ -68,16 +68,15 @@ test.describe( 'edge simulator', () => {
 		const newsletter = await via( { newsletter: '1' } );
 		const shared = await newsletter.get( SEED.gatedArticle );
 		expect( shared.headers()[ 'x-edge-sim' ] ).toBe( 'HIT' );
-		expect( shared.headers()[ 'x-edge-sim-key' ] ).toBe( '-' );
+		expect( shared.headers()[ 'x-wpvip-content-gates-key' ] ).toBe(
+			'none'
+		);
 		await newsletter.dispose();
 
 		// A subscriber gets a separate copy, keyed on subscriber only.
 		const subscriber = await via( { subscriber: '1', newsletter: '1' } );
 		const own = await subscriber.get( SEED.gatedArticle );
 		expect( own.headers()[ 'x-edge-sim' ] ).toBe( 'MISS' );
-		expect( own.headers()[ 'x-edge-sim-key' ] ).toBe(
-			'vc-v1__subscriber_--_1'
-		);
 		expect( own.headers()[ 'x-wpvip-content-gates-key' ] ).toBe(
 			'vc-v1__subscriber_--_1'
 		);
@@ -105,7 +104,7 @@ test.describe( 'edge simulator', () => {
 		// value; the record is now empty and every later reader narrows to ''.
 		const anon = await via();
 		const miss = await anon.get( SEED.publicPost );
-		expect( miss.headers()[ 'x-edge-sim-key' ] ).toBe( '-' );
+		expect( miss.headers()[ 'x-wpvip-content-gates-key' ] ).toBe( 'none' );
 		await anon.dispose();
 
 		const donor = await via( { donor: '1' } );
@@ -117,7 +116,7 @@ test.describe( 'edge simulator', () => {
 	test( 'a search crawler gets the crawler copy with structured data and no cookie', async () => {
 		const bot = await via( {}, 'Mozilla/5.0 (compatible; Googlebot/2.1)' );
 		const response = await bot.get( SEED.gatedArticle );
-		expect( response.headers()[ 'x-edge-sim-key' ] ).toBe(
+		expect( response.headers()[ 'x-wpvip-content-gates-key' ] ).toBe(
 			'vc-v1__crawlers-search_--_1'
 		);
 		const body = await response.text();
@@ -129,7 +128,9 @@ test.describe( 'edge simulator', () => {
 		// A browser claiming a crawler value in its cookie gains nothing.
 		const forged = await via( { 'crawlers-search': '1' } );
 		const forgedResponse = await forged.get( SEED.gatedArticle );
-		expect( forgedResponse.headers()[ 'x-edge-sim-key' ] ).toBe( '-' );
+		expect( forgedResponse.headers()[ 'x-wpvip-content-gates-key' ] ).toBe(
+			'none'
+		);
 		expect( await forgedResponse.text() ).not.toContain(
 			SEED.subscriberOnly
 		);

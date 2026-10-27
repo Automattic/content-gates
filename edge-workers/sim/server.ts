@@ -346,6 +346,38 @@ export async function startEdgeSim(
 	 * @param method         Client request method.
 	 * @param url            Client request target.
 	 */
+	/**
+	 * Phase 3 as the worker runs it: the key header, and no-store when the
+	 * response must not be stored. Runs on passes too, with the bypass
+	 * marker, so a pass reads `bypass` as it would on the platform.
+	 *
+	 * @param headers      Origin response headers, modified in place.
+	 * @param lookup       Phase 1's lookup marker.
+	 * @param recordKeys   Phase 1's record marker.
+	 * @param segmentation Phase 1's narrowed segmentation.
+	 */
+	function originResponsePhase(
+		headers: HeaderList,
+		lookup: string,
+		recordKeys: string | null,
+		segmentation: string | null
+	) {
+		const input = new OriginResponseInput();
+		input.vary = getHeaderValues( headers, 'vary' ).join( ', ' ) || null;
+		input.declared = getHeader( headers, DECLARED_HEADER );
+		input.lookup = lookup;
+		input.recordKeys = recordKeys;
+		input.segmentation = segmentation;
+		const out = onOriginResponsePure( input );
+		setHeader( headers, KEY_HEADER, out.key );
+		if ( out.noStore ) {
+			// The SDK's setCacheControl() writes both of these.
+			setHeader( headers, 'cache-control', 'no-store' );
+			setHeader( headers, 'x-original-cache-control', 'no-store' );
+		}
+		return out;
+	}
+
 	function clientResponsePhase(
 		headers: HeaderList,
 		requestHeaders: HeaderList,
@@ -578,7 +610,7 @@ export async function startEdgeSim(
 			log( method + ' ' + url + ' bypass=' + bypass );
 			const result = await forward( method, url, originHeaders, body );
 			const headers: HeaderList = result.headers.slice();
-			setHeader( headers, KEY_HEADER, LOOKUP_BYPASS );
+			originResponsePhase( headers, LOOKUP_BYPASS, null, null );
 			clientResponsePhase( headers, clientHeaders, method, url );
 			log( '  PASS ' + result.status );
 			deliver(
@@ -588,7 +620,6 @@ export async function startEdgeSim(
 				[
 					...headers,
 					[ 'x-edge-sim', 'PASS' ],
-					[ 'x-edge-sim-key', '-' ],
 					[ 'x-edge-sim-record', '-' ],
 				],
 				result.body
@@ -624,7 +655,6 @@ export async function startEdgeSim(
 
 		const simHeaders = ( verdict: string ): HeaderList => [
 			[ 'x-edge-sim', verdict ],
-			[ 'x-edge-sim-key', keyLabel ],
 			[ 'x-edge-sim-record', describeRecord( key ) ],
 		];
 
@@ -660,27 +690,21 @@ export async function startEdgeSim(
 		const result = await forward( method, url, originHeaders, body );
 		const headers: HeaderList = result.headers.slice();
 
-		const phase3Input = new OriginResponseInput();
-		phase3Input.vary =
-			getHeaderValues( headers, 'vary' ).join( ', ' ) || null;
-		phase3Input.declared = getHeader( headers, DECLARED_HEADER );
-		phase3Input.lookup = phase1.lookup;
-		phase3Input.recordKeys = phase1.recordKeys;
-		phase3Input.segmentation = phase1.segmentation;
-		const phase3 = onOriginResponsePure( phase3Input );
-		setHeader( headers, KEY_HEADER, phase3.key );
-		if ( phase3.noStore ) {
-			// The SDK's setCacheControl() writes both of these.
-			setHeader( headers, 'cache-control', 'no-store' );
-			setHeader( headers, 'x-original-cache-control', 'no-store' );
-		}
+		const phase3 = originResponsePhase(
+			headers,
+			phase1.lookup,
+			phase1.recordKeys,
+			phase1.segmentation
+		);
 		if ( phase3.record !== null ) {
 			kv.set( key, phase3.record );
 		}
 		log( '  MISS ' + result.status + ' phase 3: ' + phase3.reason );
 
 		if ( isStorable( method, result.status, headers ) ) {
-			const varies = variesOnSegmentation( phase3Input.vary );
+			const varies = variesOnSegmentation(
+				getHeaderValues( headers, 'vary' ).join( ', ' ) || null
+			);
 			const entry: CacheEntry = {
 				status: result.status,
 				headers: headers.map( ( pair ) => [ ...pair ] ),

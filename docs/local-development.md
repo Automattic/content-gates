@@ -24,7 +24,7 @@ npm run edge:sim                  # http://localhost:8890 -> origin :8888
 ```
 
 Use `:8890` as the site. Every response carries `X-Edge-Sim: HIT|MISS|PASS`
-and `X-Edge-Sim-Key`, the narrowed cache key the request used.
+and the worker's `X-WPVIP-Content-Gates-Key`, the key the request resolved to.
 
 `npm run doctor` checks the toolchain, Docker, both wp-env instances, and
 who owns the ports.
@@ -70,7 +70,7 @@ Things to try, with the simulator running:
 | Open `/gated-article/` twice anonymously | `MISS` then `HIT`; no `SUBSCRIBER-ONLY` |
 | Join `newsletter`, open it again | `HIT` with the same empty key: the URL does not declare `newsletter` |
 | Join `subscriber` | `MISS` with key `vc-v1__subscriber_--_1`, then `HIT`s; the article is there and the prompt is gone |
-| Open `/public-post/` with any membership | One copy for everyone; `X-Edge-Sim-Key: -` (nothing to vary on) |
+| Open `/public-post/` with any membership | One copy for everyone; `X-WPVIP-Content-Gates-Key: none` (nothing to vary on) |
 | `curl -A Googlebot http://localhost:8890/gated-article/` | Full article, `content-gates-gated-1` class, JSON-LD in the footer, no `Set-Cookie` |
 | Open `/metered-article/`, `/metered-article-2/`, `/metered-article-3/`, then the first again in one cookie jar | First visit shows the gate and sets `open`; then three articles; then `METERED-WALL` |
 | Deactivate `subscriber` on Settings > Content Gates | The simulator's store is purged; subscribers see the gate until reactivation |
@@ -116,7 +116,7 @@ npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates 
 | `Vary: X-VIP-Go-Segmentation` | `Vary_Cache` is active (any group registered) |
 | `X-VIP-Go-Segmentation-Debug` | Full membership, `WP_DEBUG` only, from `Vary_Cache` |
 | `X-WPVIP-Content-Gates-Key` | The key the edge resolved the request to: the narrowed segmentation value, `none`, `bypass`, or `-` when phase 3 saw no phase 1 rewrite |
-| `X-Edge-Sim`, `X-Edge-Sim-Key`, `X-Edge-Sim-Record` | Simulator only: hit status, the narrowed key, the KV record |
+| `X-Edge-Sim`, `X-Edge-Sim-Record` | Simulator only: hit status and the KV record |
 
 Comparing `X-VIP-Go-Segmentation-Debug` with `X-WPVIP-Content-Gates-Key`
 shows what the edge narrowed away.

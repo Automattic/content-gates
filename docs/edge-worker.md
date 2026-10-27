@@ -377,12 +377,12 @@ curl -X POST http://localhost:8890/__edge/reset
 Flags: `--origin` (default `http://localhost:8888`), `--port` (default
 `8890`), `--secret` (default `local-dev-secret`), `--verbose`.
 
-Every response carries three diagnostic headers:
+Every response carries two simulator headers next to the worker's own
+`X-WPVIP-Content-Gates-Key`:
 
 | Header | Meaning |
 | --- | --- |
 | `X-Edge-Sim` | `HIT`, `MISS`, or `PASS` |
-| `X-Edge-Sim-Key` | The narrowed segmentation value used for lookup, or `-` |
 | `X-Edge-Sim-Record` | Declared groups known for the URL, `(empty)`, or `-` for none |
 
 `GET /__edge/stats` returns hits, misses, passes, stored entries with
@@ -422,9 +422,10 @@ confirmed" until measured on VIP.
   `no-store`, `no-cache`, `private`, or `max-age=0`. VIP may store other
   statuses (301, 404) and may strip rather than refuse some cookies.
 - **Phases on a pass.** Phase 1 runs on every request (as on the
-  platform) and bypasses these; phase 3 does not run on a pass in the
-  simulator, and phase 4 runs and skips with `bypass`. Whether VIP runs
-  response phases on a pass is unknown; the worker is correct either way.
+  platform) and bypasses these; phases 3 and 4 run too, so a pass reads
+  `X-WPVIP-Content-Gates-Key: bypass` and is never stored. Whether VIP runs
+  response phases on a pass is unknown; if it does not, a live pass
+  carries no key header at all. The worker is correct either way.
 - **`setCacheControl("no-store")`** is emulated by replacing
   `Cache-Control` and adding `X-Original-Cache-Control`, as the SDK does.
   Whether VIP forwards the rewritten header to the client is unknown.
