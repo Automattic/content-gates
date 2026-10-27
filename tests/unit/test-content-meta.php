@@ -84,9 +84,6 @@ final class Test_Content_Meta extends Content_Gates_Test_Case {
 	 * A REST save with an unknown key is refused with a 400.
 	 */
 	public function test_rest_save_rejects_unknown_key(): void {
-		// dispatch() alone is not a served REST request, so the created post's
-		// rendered content reads before the declared set is built.
-		$this->setExpectedIncorrectUsage( 'is_reader_in_segment' );
 		$this->create_segment( 'Subscriber' );
 		wp_set_current_user( $this->create_user( 'editor' ) );
 		do_action( 'rest_api_init' );

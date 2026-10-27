@@ -148,10 +148,10 @@ final class Test_Block_Gate extends Content_Gates_Test_Case {
 	}
 
 	/**
-	 * An unknown key is never treated as unrestricted.
+	 * An unknown key is never treated as unrestricted, and the plugin's own
+	 * read of it raises no notice.
 	 */
 	public function test_unknown_key_withholds(): void {
-		$this->setExpectedIncorrectUsage( 'is_reader_in_segment' );
 		$post_id = $this->create_post(
 			array( 'post_content' => $this->gated_group( array( 'ghost' ), $this->paragraph( self::SECRET ) ) )
 		);

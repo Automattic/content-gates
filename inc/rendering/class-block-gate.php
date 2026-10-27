@@ -204,9 +204,8 @@ final class Block_Gate {
 	 * The one place the gating rule lives.
 	 *
 	 * `in`: withhold unless the reader is in at least one listed segment.
-	 * `not-in`: withhold if the reader is in any of them. Each read goes
-	 * through the membership API, so undeclared, inactive, and unknown keys
-	 * read as not-in-segment; an unknown key also raises `_doing_it_wrong()`.
+	 * `not-in`: withhold if the reader is in any of them. Undeclared,
+	 * inactive, and unknown keys read as not-in-segment.
 	 *
 	 * @since 0.1.0
 	 *
@@ -216,13 +215,28 @@ final class Block_Gate {
 	public function should_withhold( array $keys, string $mode ): bool {
 		$in_any = false;
 		foreach ( $keys as $key ) {
-			if ( $this->membership->is_in( $key ) ) {
+			if ( $this->reads_true( $key ) ) {
 				$in_any = true;
 				break;
 			}
 		}
 
 		return self::MODE_NOT_IN === $mode ? $in_any : ! $in_any;
+	}
+
+	/**
+	 * Whether a declared segment reads true, without the undeclared-read notice.
+	 *
+	 * The plugin's own reads run where nothing is declared by design: gated
+	 * teasers on archives, posts saved under WP-CLI or through REST, and
+	 * crawler checks on every response. Withholding is the intended result
+	 * there, so the `_doing_it_wrong()` notice, which tells site code to
+	 * declare what it reads, must not fire.
+	 *
+	 * @param string $key Segment key.
+	 */
+	private function reads_true( string $key ): bool {
+		return $this->declared->allows_read( $key ) && $this->membership->is_in( $key );
 	}
 
 	/**
@@ -237,7 +251,7 @@ final class Block_Gate {
 
 		$this->is_crawler = false;
 		foreach ( $this->segments->crawler_keys() as $key ) {
-			if ( $this->declared->allows_read( $key ) && $this->membership->is_in( $key ) ) {
+			if ( $this->reads_true( $key ) ) {
 				$this->is_crawler = true;
 				break;
 			}

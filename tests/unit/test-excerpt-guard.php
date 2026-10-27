@@ -34,6 +34,23 @@ final class Test_Excerpt_Guard extends Content_Gates_Test_Case {
 	}
 
 	/**
+	 * On an archive nothing is declared, so a gated teaser withholds, and the
+	 * plugin's own read raises no undeclared-read notice. The test library
+	 * fails on any unexpected notice.
+	 */
+	public function test_archive_excerpt_withholds_quietly(): void {
+		$this->create_segment( 'Subscriber' );
+		$post_id = $this->create_gated_post( array( 'subscriber' ) );
+		$this->become_reader( array( 'subscriber' => '1' ) );
+		$this->request_page( home_url( '/' ) );
+
+		$excerpt = get_the_excerpt( $post_id );
+
+		$this->assertStringContainsString( 'PUBLIC-INTRO', $excerpt );
+		$this->assertStringNotContainsString( self::SECRET, $excerpt, 'Undeclared on an archive: withheld even for a member.' );
+	}
+
+	/**
 	 * The guard removes withheld Groups from the excerpt.
 	 */
 	public function test_guard_strips_withheld_groups(): void {
