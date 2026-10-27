@@ -171,8 +171,6 @@ final class Segment_Registry {
 					'post_status'            => array( 'publish', 'draft' ),
 					'posts_per_page'         => 100,
 					'paged'                  => $paged,
-					'orderby'                => 'title',
-					'order'                  => 'ASC',
 					'no_found_rows'          => true,
 					'update_post_term_cache' => false,
 				)

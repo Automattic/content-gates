@@ -15,7 +15,7 @@
  */
 
 import { bypassReason } from './bypass.ts';
-import { classifyCrawler, crawlerKeys, crawlerVersion } from './crawlers.ts';
+import { classifyCrawler, crawlerKeys } from './crawlers.ts';
 import {
 	buildSetCookie,
 	expiresCookie,
@@ -65,9 +65,6 @@ export const RECORD_HEADER: string = 'x-wpvip-content-gates-record';
 
 /** Phase 1 -> 3 marker: the KV key for this URL. */
 export const KV_KEY_HEADER: string = 'x-wpvip-content-gates-kv';
-
-/** Phase 1 marker: crawler groups the worker classified, comma separated. */
-export const CRAWLER_HEADER: string = 'x-wpvip-content-gates-crawler';
 
 /** Response header origin sends with the declared set. */
 export const DECLARED_HEADER: string = 'x-wpvip-content-gates-declared';
@@ -146,10 +143,6 @@ export class ClientRequestOutput {
 	recordKeys: string = '';
 	/** Rewritten `Cookie` header for origin; empty means delete it. */
 	cookie: string = '';
-	/** Crawler groups matched, comma separated; empty when none. */
-	crawler: string = '';
-	/** Value for `X-WPVIP-Content-Gates-Edge`. */
-	edgeVersion: string = '';
 }
 
 /**
@@ -167,7 +160,6 @@ export function onClientRequestPure(
 	input: ClientRequestInput
 ): ClientRequestOutput {
 	const out = new ClientRequestOutput();
-	out.edgeVersion = crawlerVersion();
 
 	// 1. The reader's groups, minus anything only the worker may set.
 	const fromCookie = parseSegmentation(
@@ -180,7 +172,6 @@ export function onClientRequestPure(
 	for ( let i = 0; i < matched.length; i++ ) {
 		reader.set( matched[ i ], '1' );
 	}
-	out.crawler = matched.join( ',' );
 
 	// 3. Narrow when a record exists; otherwise today's full-value keying.
 	const record = decodeRecord( input.record );

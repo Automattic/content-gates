@@ -30,9 +30,9 @@ test( 'serialize sorts by name and skips empty values', () => {
 } );
 
 test( 'parse tolerates null, empty, missing prefix, and junk fragments', () => {
-	assert.equal( parseSegmentation( null ).size(), 0 );
-	assert.equal( parseSegmentation( '' ).size(), 0 );
-	assert.equal( parseSegmentation( 'vc-v1__' ).size(), 0 );
+	assert.equal( parseSegmentation( null ).names.length, 0 );
+	assert.equal( parseSegmentation( '' ).names.length, 0 );
+	assert.equal( parseSegmentation( 'vc-v1__' ).names.length, 0 );
 	assert.equal( parseSegmentation( 'a_--_1' ).get( 'a' ), '1' );
 	const junk = parseSegmentation(
 		'vc-v1__nosep---__bad;name_--_1---__ok_--_1'
@@ -43,7 +43,7 @@ test( 'parse tolerates null, empty, missing prefix, and junk fragments', () => {
 test( 'a later duplicate overwrites an earlier one, like Vary_Cache', () => {
 	const groups = parseSegmentation( 'vc-v1__a_--_1---__a_--_2' );
 	assert.equal( groups.get( 'a' ), '2' );
-	assert.equal( groups.size(), 1 );
+	assert.equal( groups.names.length, 1 );
 } );
 
 test( 'empty serialization when no groups remain', () => {
@@ -81,15 +81,4 @@ test( 'sortNames orders by code unit without mutating input', () => {
 	const input = [ 'b', 'B', 'a', '1-x' ];
 	assert.deepEqual( sortNames( input ), [ '1-x', 'B', 'a', 'b' ] );
 	assert.deepEqual( input, [ 'b', 'B', 'a', '1-x' ] );
-} );
-
-test( 'Groups remove and has', () => {
-	const groups = new Groups();
-	groups.set( 'a', '1' );
-	groups.set( 'b', '2' );
-	groups.remove( 'a' );
-	assert.equal( groups.has( 'a' ), false );
-	assert.equal( groups.get( 'b' ), '2' );
-	groups.remove( 'missing' );
-	assert.equal( groups.size(), 1 );
 } );

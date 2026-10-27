@@ -25,7 +25,6 @@ import { Crypto } from '../lib/crypto.ts';
 import { decodeRecord } from '../lib/declared.ts';
 import { responseTime } from '../lib/httpdate.ts';
 import {
-	CRAWLER_HEADER,
 	ClientRequestInput,
 	ClientResponseInput,
 	DECLARED_HEADER,
@@ -640,7 +639,6 @@ export async function startEdgeSim(
 		setHeader( originHeaders, LOOKUP_HEADER, phase1.lookup );
 		setHeader( originHeaders, RECORD_HEADER, phase1.recordKeys );
 		setHeader( originHeaders, KV_KEY_HEADER, key );
-		setHeader( originHeaders, CRAWLER_HEADER, phase1.crawler );
 		if ( phase1.cookie.length === 0 ) {
 			deleteHeader( originHeaders, 'cookie' );
 		} else {

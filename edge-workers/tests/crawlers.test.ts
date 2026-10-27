@@ -13,7 +13,6 @@ import {
 	classifyCrawler,
 	crawlerKeys,
 	crawlerVersion,
-	isCrawlerKey,
 } from '../lib/crawlers.ts';
 
 const here = dirname( fileURLToPath( import.meta.url ) );
@@ -81,6 +80,4 @@ test( 'a user agent can match more than one segment', () => {
 
 test( 'crawler keys are known and sorted', () => {
 	assert.deepEqual( crawlerKeys(), [ 'crawlers-ai', 'crawlers-search' ] );
-	assert.equal( isCrawlerKey( 'crawlers-search' ), true );
-	assert.equal( isCrawlerKey( 'subscriber' ), false );
 } );

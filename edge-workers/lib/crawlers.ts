@@ -37,16 +37,6 @@ export function crawlerKeys(): string[] {
 }
 
 /**
- * Whether `name` is a crawler group.
- *
- * @param name Group name.
- * @return True for a configured crawler segment.
- */
-export function isCrawlerKey( name: string ): bool {
-	return CRAWLER_KEYS.indexOf( name ) >= 0;
-}
-
-/**
  * Crawler groups whose user-agent patterns match `userAgent`.
  *
  * Patterns are case-insensitive substrings, per the spec. The result is in

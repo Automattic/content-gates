@@ -348,8 +348,7 @@ final class Declared_Set {
 	 */
 	private function is_incremental(): bool {
 		if ( null === $this->incremental ) {
-			$this->incremental = ( function_exists( 'wp_is_serving_rest_request' ) && wp_is_serving_rest_request() )
-				|| ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+			$this->incremental = wp_is_serving_rest_request();
 		}
 
 		return $this->incremental;

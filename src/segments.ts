@@ -95,13 +95,6 @@ export function fetchSegments(): Promise< Segment[] > {
 }
 
 /**
- * Forget the cached list. Used by tests and by a future "refresh" action.
- */
-export function resetSegmentsCache(): void {
-	cached = null;
-}
-
-/**
  * React hook that exposes the shared segment list with loading and error
  * states.
  *

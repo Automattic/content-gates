@@ -65,8 +65,6 @@ test( 'phase 1 without a record passes the full value through', () => {
 	);
 	assert.equal( out.lookup, 'full' );
 	assert.equal( out.recordKeys, '' );
-	assert.equal( out.edgeVersion, '1' );
-	assert.equal( out.crawler, '' );
 } );
 
 test( 'phase 1 with a record narrows to the recorded keys', () => {
@@ -124,7 +122,6 @@ test( 'phase 1 classifies a crawler and injects it into header and cookie', () =
 		)
 	);
 	assert.equal( out.segmentation, 'vc-v1__crawlers-search_--_1' );
-	assert.equal( out.crawler, 'crawlers-search' );
 	assert.equal( out.cookie, 'vip-go-seg=vc-v1__crawlers-search_--_1' );
 } );
 

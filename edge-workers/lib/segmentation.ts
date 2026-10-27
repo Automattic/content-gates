@@ -93,16 +93,6 @@ export class Groups {
 	}
 
 	/**
-	 * Whether the group is present.
-	 *
-	 * @param name Group name.
-	 * @return True when present.
-	 */
-	has( name: string ): bool {
-		return this.indexOf( name ) >= 0;
-	}
-
-	/**
 	 * The value for `name`, or null when absent.
 	 *
 	 * @param name Group name.
@@ -127,29 +117,6 @@ export class Groups {
 		} else {
 			this.values[ i ] = value;
 		}
-	}
-
-	/**
-	 * Remove `name` when present.
-	 *
-	 * @param name Group name.
-	 */
-	remove( name: string ): void {
-		const i = this.indexOf( name );
-		if ( i < 0 ) {
-			return;
-		}
-		this.names.splice( i, 1 );
-		this.values.splice( i, 1 );
-	}
-
-	/**
-	 * Number of groups.
-	 *
-	 * @return The count.
-	 */
-	size(): i32 {
-		return this.names.length;
 	}
 }
 

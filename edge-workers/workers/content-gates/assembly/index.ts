@@ -31,7 +31,6 @@ import { crawlerVersion } from '../../../lib/crawlers.ts';
 import { Crypto } from '../../../lib/crypto.ts';
 import { responseTime } from '../../../lib/httpdate.ts';
 import {
-	CRAWLER_HEADER,
 	ClientRequestInput,
 	ClientResponseInput,
 	DECLARED_HEADER,
@@ -157,7 +156,6 @@ onClientRequest( ( req: Request ): void => {
 	req.headers.set( LOOKUP_HEADER, out.lookup );
 	req.headers.set( RECORD_HEADER, out.recordKeys );
 	req.headers.set( KV_KEY_HEADER, key );
-	req.headers.set( CRAWLER_HEADER, out.crawler );
 
 	if ( out.cookie.length == 0 ) {
 		req.headers.delete( 'cookie' );
