@@ -46,9 +46,16 @@ final class Edge_Notice {
 	/**
 	 * Store the version the worker reported, when it changed.
 	 *
+	 * Only admin requests write: the notice is read there, and a front-end
+	 * request must not reach the database on the strength of a request header.
+	 *
 	 * @since 0.1.0
 	 */
 	public function remember_edge_version(): void {
+		if ( ! is_admin() ) {
+			return;
+		}
+
 		$seen = $this->crawlers->edge_version();
 		if ( null === $seen ) {
 			return;
