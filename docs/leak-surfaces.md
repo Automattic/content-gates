@@ -29,7 +29,7 @@ observed on a VIP application yet.
 | Template parts, shortcodes | Reads fail closed unless declared | `Test_Membership::test_undeclared_read_fails_closed` | |
 | Object cache, transients, fragment caches | Not used for rendered gated HTML | by design | The plugin caches only the segment list |
 | Cross-variant cache leak | Entitled copy never served to a non-entitled reader | `edge-cache.spec.ts`, `edge-workers/tests` | Simulator only; coverage check refuses too-narrow keys |
-| Forged crawler cookie | Gains nothing | `edge-cache.spec.ts` "a search crawler ...", `Test_Structured_Data::test_crawler_value_is_not_read_on_archives` | The worker strips crawler groups from incoming cookies; origin reads them only on gated singular posts |
+| Forged crawler cookie | Gains nothing | `edge-cache.spec.ts` "a search crawler ...", `Test_Structured_Data::test_crawler_value_is_not_read_on_archives` | The worker strips crawler groups from incoming cookies; origin reads them only where an editor assigned them to a Group, and archives declare nothing |
 | Forged `vip-go-seg` membership | **Accepted risk** | spec/segment-admin.md | Plaintext cookie; a reader who writes `subscriber_--_1` is a subscriber. Recorded, not mitigated |
 | Spoofed crawler user agent | **Accepted risk** | spec/page-cache.md | Receives the crawler variant |
 | View As switcher | Never cached | `Test_View_As::test_switched_response_is_no_store`, `gating.spec.ts` | `no-store` on every switched response; logged-in requests bypass the VIP cache anyway |

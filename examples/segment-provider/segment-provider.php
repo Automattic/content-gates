@@ -302,7 +302,7 @@ function render_page(): void {
 		<fieldset>
 			<legend><?php esc_html_e( 'Segments', 'content-gates' ); ?></legend>
 			<?php if ( array() === $segments ) : ?>
-				<p><?php esc_html_e( 'No active segments. Create one under Settings → Segments.', 'content-gates' ); ?></p>
+				<p><?php esc_html_e( 'No active segments. Create one under Settings → Content Gates.', 'content-gates' ); ?></p>
 			<?php endif; ?>
 			<?php foreach ( $segments as $segment ) : ?>
 				<label>

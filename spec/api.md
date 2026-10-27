@@ -34,7 +34,7 @@ Rules that apply to every function:
 - Writes are idempotent. Assigning a value the reader already holds, or removing a group the reader is not in, returns `true`, marks nothing dirty, and sends no `Set-Cookie`. Providers can therefore reassert membership on every request without making entitled responses unstorable. (Added 2026-10-23; see [decisions.md](decisions.md).)
 - Removing the reader's last group expires the segmentation cookie (`vip-go-seg`, or `vip-go-auth` in encrypted mode) with the path and domain `Vary_Cache` used to set it. Upstream `Vary_Cache` skips the write when every group is empty, which would leave the reader a member on the next request. The plugin corrects this on `vip_vary_cache_did_send_headers` without editing `Vary_Cache`.
 - Membership is parsed from the cookie by `Vary_Cache` at `init` priority 10. Nothing in this API works before that.
-- All membership reads go through this API. A direct call to `Vary_Cache::is_user_in_group()`, `Vary_Cache::is_user_in_group_segment()`, or `Vary_Cache::get_groups()` outside the plugin is a defect, because it bypasses the declared-set check. A project PHPCS sniff flags those calls.
+- All membership reads go through this API. A direct call to `Vary_Cache::is_user_in_group()`, `Vary_Cache::is_user_in_group_segment()`, or `Vary_Cache::get_groups()` outside the plugin is a defect, because it bypasses the declared-set check. A project PHPCS sniff that flags those calls is planned, not written (see [known-limitations.md](../docs/known-limitations.md)).
 
 ## Errors
 
@@ -51,7 +51,18 @@ Rules that apply to every function:
 | Hook | Type | Arguments | When |
 | --- | --- | --- | --- |
 | `content_gates_loaded` | action | `Plugin $plugin` | Once, after the plugin registered its hooks. Providers hook here |
-| `content_gates_declared_segments` | filter | `string[] $segments, \WP_Query $query` | At `send_headers`, when the plugin builds the declared set. The filter can add keys but never remove them: keys that came from block assignments or earlier declarations are restored after the filter runs. Removing one would make its reads fail closed and withhold content with no visible cause |
+| `content_gates_declared_segments` | filter | `string[] $segments, \WP_Query $query` | At the end of `wp` (priority `PHP_INT_MAX`) on page requests, and in `rest_pre_echo_response` on REST, when the plugin builds the declared set. The filter can add keys but never remove them: keys that came from block assignments or earlier declarations are restored after the filter runs. Removing one would make its reads fail closed and withhold content with no visible cause |
+
+| `content_gates_declared` | action | `string[] $keys` | After the declared set is final and its header was sent. Sorted segment keys |
+| `content_gates_rest_headers_sent` | action | none | After the declared header went out on a REST response. The membership layer sends `Vary` and the cookie here |
+| `content_gates_segment_changed` | action | `Segment $segment, string $change` | After a segment was created, activated, deactivated, or reconfigured, from any save path |
+| `content_gates_crawlers_synced` | action | `string[] $changed` | After crawler records were synchronized with `config/crawlers.json` |
+| `content_gates_purge_all` | action | `string $reason` | A site-wide purge is needed. The default listener calls WPVIP's site purge |
+| `content_gates_newspack_rule_missing` | action | `string $slug` | A mapped Newspack rule is not registered, so nothing was assigned for it |
+| `content_gates_cookie_lifetime` | filter | `int $seconds` | On `init` priority 5. Lifetime of the segmentation cookie; default one day, floor one hour |
+| `content_gates_newspack_rules` | filter | `array $mappings` | Newspack rule to segment mappings for the bridge |
+
+The eight hooks after the first two were adopted into the contract on 2026-10-26; before that only [docs/README.md](../docs/README.md) listed them.
 
 Providers that follow the post-redirect-get pattern redirect on WPVIP's `vip_vary_cache_did_send_headers( $sent_vary, $sent_cookie )` action, which fires after `Vary_Cache` has written the cookie.
 
@@ -70,7 +81,7 @@ Providers that follow the post-redirect-get pattern redirect on WPVIP's `vip_var
 
 Core fires `send_headers` before the `wp` action (`WP::main()`), so the plugin's finalize callback runs at the end of `wp`, not on `send_headers`. Both run before any output and before `template_redirect`. Membership writes therefore close at `send_headers` and declarations close at the end of `wp`. (Corrected 2026-10-22; see [decisions.md](decisions.md).)
 
-REST responses build the declared set incrementally instead: a post's stored set is merged just before its content renders, and the header is sent in `rest_pre_echo_response`, the last filter before the JSON is echoed, so `_embed`ded posts are covered. When another handler serves the response itself (`rest_pre_serve_request` returns true) the set is closed there. Feeds, oEmbed, and embeds follow the page path.
+REST responses build the declared set incrementally instead: a post's stored set is merged just before its content renders, and the header is sent in `rest_pre_echo_response`, the last filter before the JSON is echoed, so `_embed`ded posts are covered. When another handler serves the response itself (`rest_pre_serve_request` returns true) the set is closed there. Feeds and `/embed/` pages follow the page path. The oEmbed endpoint is a REST route, so it follows the REST path.
 
 REST requests exit before the `send_headers` action, so `Vary_Cache` never sends `Vary` or writes its cookie on them by itself. A provider route that assigns membership during a REST request would return 200 and set nothing, and a REST response that rendered gated content would carry no `Vary`. The plugin therefore calls `Vary_Cache::send_headers()` when it sends the declared header on a REST response. Provider routes need no extra step, but they must assign before the response is served.
 
@@ -84,8 +95,9 @@ REST requests exit before the `send_headers` action, so `Vary_Cache` never sends
 | --- | --- | --- |
 | `X-WPVIP-Content-Gates-Declared` | Every response that passes the plugin's finalize callback | Sorted group names in the declared set, comma separated; empty when none |
 | `X-WPVIP-Content-Gates-Meter` | The declared set of a singular page contains a meter segment; once per meter. Feeds and REST responses declare the meter but are not article views, so they send no meter header | `{group}; id={post_id}; limit={n}; period={seconds}` |
+| `X-WPVIP-Content-Gates-View-As` | A logged-in editor is using the View As switcher. Such responses are also `Cache-Control: no-store` | The chosen membership |
 
-Both are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
+The first two are read by the Edge Worker and stored with the cached copy. [page-cache.md](page-cache.md) specifies how each is used.
 
 ### Diagnostic headers (added 2026-10-23, reduced 2026-10-26)
 

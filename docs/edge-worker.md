@@ -127,7 +127,7 @@ cached as usual.
    never an unchecked store.
 1. **Undeclared:** `X-WPVIP-Content-Gates-Declared` missing ->
    `setCacheControl("no-store")`. The response skipped the plugin's
-   `send_headers` callback, so its reads are unknown.
+   finalize callback at the end of `wp`, so its reads are unknown.
 2. **Coverage check:** every declared group must be in the set of keys
    phase 1 narrowed with. When phase 1 used the full value (no record),
    the response is covered. When a declared group was narrowed away ->
@@ -215,7 +215,7 @@ cookie next to it:
 | `1-subscribers, …` | `none` | Anonymous copy. The reader held none of the declared groups, or the record narrowed them all away |
 | `1-subscribers, …` | `vc-v1__1-subscribers_--_1` | The subscriber copy |
 | `1-subscribers, …` | `vc-v1__1-subscribers_--_1---__newsletter_--_1` | Narrowing failed to drop `newsletter`: no record yet (first request since purge) or a stale one |
-| present | `-` | Phase 3 ran but saw no segmentation from phase 1: phase 1 did not run, or `resp.request` does not carry its rewrite (open question 8). Phase 3 marks the response `no-store` |
+| present | `-` | Phase 3 ran but saw no segmentation from phase 1: phase 1 did not run, or `resp.request` does not carry its rewrite (platform question 8 in [known-limitations.md](known-limitations.md)). Phase 3 marks the response `no-store` |
 | present, `Vary` set | header absent | The worker did not run phase 3 on this response |
 | absent, `Vary` set | any | Origin fault: a segmented response with no declared set. Phase 3 marks it `no-store` |
 
@@ -238,9 +238,11 @@ edge location, never a leak.
 
 ## Cookie formats
 
-Both cookies use `Path=/` and no `Domain`, `Secure`, or `SameSite`, the
-same attributes `Vary_Cache` sets, so the two writers of `vip-go-seg`
-never disagree.
+The worker writes both cookies with `Path=/`, `Max-Age`, and no `Domain`,
+`Secure`, or `SameSite`. `Vary_Cache` writes `vip-go-seg` with `expires`
+and `COOKIE_DOMAIN` instead. When origin wrote the cookie on this response,
+phase 4 keeps origin's attributes, so the two writers differ only on hits,
+where origin wrote nothing.
 
 **`vip-go-seg`** (`Vary_Cache` format, shared with origin):
 

@@ -30,8 +30,9 @@ managed there, not in the editor.
 
 The segment list is fetched once per editor session from
 `GET /content-gates/v1/segments` (authenticated, `edit_posts`). While it
-loads the panel shows a spinner; if the request fails the panel shows the
-error and retries the next time a Group is selected.
+loads the panel shows a spinner. If the request fails the panel shows the
+error; the next Group panel to mount (a new Group, or a reload) fetches
+again.
 
 ## How the assignment is stored
 

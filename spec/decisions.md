@@ -33,7 +33,7 @@
 ## Membership runtime
 
 - Platform loading: `Vary_Cache` is opt-in on WPVIP. The plugin requires it from mu-plugins itself. Without it, outside a `local` environment, the plugin fails closed: reads return `false`, assignments error, gated Groups are withheld. A plaintext cookie adapter exists for `local` only and is never a production fallback.
-- REST assignments: REST requests exit before `send_headers`, so the plugin triggers the `Vary_Cache` cookie write in `rest_pre_serve_request` when a request assigned or removed membership. Providers' own routes need nothing extra.
+- REST assignments: REST requests exit before `send_headers`, so the plugin triggers the `Vary_Cache` cookie write when it sends the declared header, in `rest_pre_echo_response` (see the timing corrections below). Providers' own routes need nothing extra.
 - Declared-set filter: `content_gates_declared_segments` can add keys but never remove keys that came from block assignments or earlier declarations.
 
 - The provider assigns membership on every origin request, for logged-in and anonymous readers alike. Login grants nothing.

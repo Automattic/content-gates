@@ -101,7 +101,7 @@ Keep development and test data separate. Do not run database-resetting suites ag
   - `tests/e2e/`: Playwright specs, `helpers.ts`, and `global-setup.ts` (seeds the tests site)
   - `tests/fixtures/mu-plugins/`: the local-only demo provider, seeder, and purge bridge, mapped into both wp-env sites
   - `tests/phpstan/`: stubs for static analysis only
-  - `tests/debugging/`: debugging/analysis tools
+  - `tests/debugging/`: debugging/analysis tools (none yet; its README says what belongs there)
 - `.github/workflows/ci.yml`: static checks, edge tests, PHPUnit, Playwright
 
 ## Setup (from a clean checkout)

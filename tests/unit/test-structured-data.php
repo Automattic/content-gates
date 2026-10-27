@@ -149,8 +149,8 @@ final class Test_Structured_Data extends Content_Gates_Test_Case {
 	}
 
 	/**
-	 * A browser-supplied crawler value gains nothing on an archive: crawler
-	 * segments are declared only on gated singular posts.
+	 * A browser-supplied crawler value gains nothing on an archive: archives
+	 * declare nothing, so no crawler segment is readable there.
 	 */
 	public function test_crawler_value_is_not_read_on_archives(): void {
 		$this->create_segment( 'Subscriber' );

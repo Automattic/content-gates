@@ -99,9 +99,15 @@ WP-CLI, from the host:
 ```bash
 npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates list
 npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates create "VIP members"
+npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates rename vip-members "VIP readers"
 npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates deactivate vip-members
+npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates activate vip-members
+npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates meter metered-articles --limit=5 --period-days=30
 npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates declared 18
+npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates sync-crawlers
 ```
+
+`wp help content-gates <subcommand>` documents each one.
 
 ## Reading a response
 

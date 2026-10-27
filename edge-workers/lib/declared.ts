@@ -2,7 +2,7 @@
  * The declared set: header parsing, KV record encoding, coverage check.
  *
  * Origin sends `X-WPVIP-Content-Gates-Declared: donor, subscriber` on every
- * response that reached the plugin's `send_headers` callback. The worker
+ * response that reached the plugin's finalize callback at the end of `wp`. The worker
  * learns each URL's declared set from it and keeps it in edge KV so later
  * requests can be narrowed before cache lookup.
  *

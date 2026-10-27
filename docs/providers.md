@@ -25,9 +25,10 @@ inside the write window.
 - The plugin ships no membership HTTP route. Only the provider can
   authenticate a reader who has no WordPress login, so the provider writes
   its own authenticated endpoint and calls the PHP functions.
-- Removal of a reader's last segment leaves the stale cookie in place until
-  it expires: `Vary_Cache` skips the cookie write when the serialized value
-  is empty. This is an upstream gap; the one-day lifetime bounds it.
+- Removing a reader's last segment expires the cookie. `Vary_Cache` skips
+  the write when the serialized value is empty, so the plugin expires the
+  cookie itself on `vip_vary_cache_did_send_headers`. A provider needs
+  nothing extra.
 - Membership on a cache HIT cannot change. Nothing a provider does at origin
   reaches a reader whose request never left the edge, until their cookie
   changes or their copy misses.

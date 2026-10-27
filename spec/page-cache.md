@@ -60,7 +60,7 @@ Reads that are not block assignments are added by the site through the declarati
 X-WPVIP-Content-Gates-Declared: donor, subscriber
 ```
 
-The header carries `Vary_Cache` group names: the segment keys on a single site, and `{blog_id}-{key}` on multisite (see [decisions.md](decisions.md)). Inactive segments are never included. A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's finalize callback (an early exit before the end of the `wp` action) sends no header. Such a response also lacks the `Vary` header that `Vary_Cache` sends at the same hook, so the worker caches it as unsegmented. A response with the `Vary` header but no declared header is treated as unknown and not stored.
+The header carries `Vary_Cache` group names: the segment keys on a single site, and `{blog_id}-{key}` on multisite (see [decisions.md](decisions.md)). Inactive segments are never included. A response with no gated content and no declarations sends the header with an empty value. A response that skipped the plugin's finalize callback (an early exit before the end of the `wp` action) sends no header. One that exited before `send_headers` also lacks the `Vary` header `Vary_Cache` sends there, so the worker caches it as unsegmented. One that exited between `send_headers` and the end of `wp` carries `Vary` but no declared header; the worker treats it as unknown and does not store it.
 
 ### Declaration API
 
@@ -214,7 +214,8 @@ A subscriber's render of `/article-1/` reads only `subscriber`. A non-subscriber
 | --- | --- | --- |
 | Editor adds a segment to a Group and saves | Post save purges every stored variant of the URL (confirmed by VIP, 2026-10-21). The next miss declares a wider set; the worker widens the record and does not store that one response. | One origin round trip per edge location |
 | Editor removes a segment from a Group | The next miss declares a narrower set; the record shrinks. Old copies were purged on save. | One origin round trip |
-| Segment deactivated or renamed in the admin | Global invalidation purges all URLs. Records are rebuilt on the next miss per URL. | One origin round trip per URL |
+| Segment deactivated, reactivated, or reconfigured in the admin | Global invalidation purges all URLs. Records are rebuilt on the next miss per URL. | One origin round trip per URL |
+| Segment created or renamed | No purge. A new key is in no cookie or stored set; keys are immutable, so a rename changes no cached byte. | None |
 | Theme adds a read without declaring it | The read returns `false`. Nothing is stored wrongly. | Until the theme declares it |
 | KV record stale at one edge location | The coverage check catches a too-narrow record. A too-wide record costs variants only. | One origin round trip at that location |
 
@@ -298,7 +299,7 @@ The segment value is one of three states. The worker chooses it from the remaini
 Two cookies carry the meter:
 
 - **`vip-go-seg`** carries only the state, as `metered-articles_--_open`, in `Vary_Cache` format. Origin and the cache key see this and nothing else.
-- **`vip-go-meter`** is private to the worker. For each meter it holds the period start, the count, and a short list of hashed post IDs already counted. The worker signs the whole value with a secret it holds, so a forged or edited cookie fails verification and is treated as absent. Size is about four bytes per counted article plus a fixed header, so a meter of ten costs under 100 bytes.
+- **`vip-go-meter`** is private to the worker. For each meter it holds the period start, the count, and a short list of hashed post IDs already counted. The worker signs the whole value with a secret it holds, so a forged or edited cookie fails verification and is treated as absent. Size is about nine bytes per counted article (an eight-character hash and a separator) plus a fixed part per meter and a signature; [docs/edge-worker.md](../docs/edge-worker.md) has the encoding.
 
 ### Request flow
 
@@ -349,7 +350,7 @@ Search and AI crawlers must receive the gated content together with paywall stru
 
 ### Principle
 
-1. **One file, two readers.** `config/crawlers.json` in this repository lists every crawler segment with its key, label, and user-agent patterns. The Edge Worker build in `edge/` compiles it in. The plugin ships the same file and reads it at load. There is no runtime configuration at the edge or in the Dashboard.
+1. **One file, two readers.** `config/crawlers.json` in this repository lists every crawler segment with its key, label, and user-agent patterns. The Edge Worker build in `edge-workers/` compiles it in. The plugin ships the same file and reads it at load. There is no runtime configuration at the edge or in the Dashboard.
 2. **Classification is per request and stateless.** The worker tests the user agent in phase 1 and injects a value for each matching segment into the narrowed segmentation header and into the cookie header it forwards to origin. It never writes a crawler value to the browser.
 3. **Origin mirrors, never edits.** The plugin mirrors each configured crawler segment into a reserved segment record so the editor and the declared set work unchanged. The record is read-only in the admin.
 
@@ -423,5 +424,5 @@ To make skew visible, the worker sends its configuration version in `X-WPVIP-Con
 ### Platform questions
 
 1. Does the VIP edge expose verified-bot information (IP ranges or reverse DNS) to a worker?
-2. Can a phase 2 worker add a header and rewrite the cookie header on the origin request? The design depends on both.
+2. Can a phase 1 worker add a header and rewrite the cookie header on the origin request? The design depends on both.
 

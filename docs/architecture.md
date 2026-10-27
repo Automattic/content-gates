@@ -41,6 +41,13 @@ place and calls its `register()` method. The boot order is the order below.
 | `CLI\Commands` | `inc/cli/class-commands.php` | WP-CLI | `wp content-gates ...`. |
 | Public functions | `inc/functions.php` | none | The six contract functions. |
 
+Three classes hold no hooks: `Headers` (`inc/class-headers.php`) sends
+response headers and records them so tests can read what went out under
+the CLI; `Segments\Segment` (`inc/segments/class-segment.php`) is the
+immutable segment record; `Segments\Crawler_Config`
+(`inc/segments/class-crawler-config.php`) reads `config/crawlers.json` and
+the version header the worker sends.
+
 ## The declared set
 
 The declared set is the list of segments a response may read. It is built
@@ -59,7 +66,7 @@ Per request type:
 
 | Request | Content contribution |
 | --- | --- |
-| Singular post or page (including `/embed/`) | The queried post's stored set. If the result is non-empty, the active crawler segments are added so the paywall markup can read them at no cost to human variants. |
+| Singular post or page (including `/embed/`) | The queried post's stored set. |
 | Feed | The union over the posts in the main query. |
 | Archive, search, home | Nothing. Teasers never read segments. |
 | REST | The union over the posts whose content rendered, merged as each renders. |
@@ -87,7 +94,7 @@ recorded in `spec/decisions.md`.
 Reader                         Edge Worker                        Origin (WordPress + plugin)
   |  GET /article  Cookie: vip-go-seg=vc-v1__newsletter_--_1---__subscriber_--_1
   |----------------------------->|
-  |                              |  KV record for /article: [crawlers-ai, crawlers-search, subscriber]
+  |                              |  KV record for /article: [subscriber]
   |                              |  narrow header to vc-v1__subscriber_--_1; forward cookie, edge version
   |                              |---------------------------------->|
   |                              |                                   | init 0: cg_segment post type
@@ -99,7 +106,7 @@ Reader                         Edge Worker                        Origin (WordPr
   |                              |                                   | template: pre_render_block withholds Groups the reader lacks
   |                              |<----------------------------------|
   |                              |  200  Vary: X-VIP-Go-Segmentation
-  |                              |       X-WPVIP-Content-Gates-Declared: crawlers-ai, crawlers-search, subscriber
+  |                              |       X-WPVIP-Content-Gates-Declared: subscriber
   |                              |  coverage check ok -> store under /article + vc-v1__subscriber_--_1; KV record replaced
   |<-----------------------------|
 ```
