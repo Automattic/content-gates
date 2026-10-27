@@ -98,7 +98,7 @@ final class Membership {
 	}
 
 	/**
-	 * Register every segment as a `Vary_Cache` group. Action callback for `init` 5.
+	 * Configure `Vary_Cache` and register every segment as a group. Action callback for `init` 5.
 	 *
 	 * Inactive segments are registered too so a provider can clear a stale
 	 * cookie value for them. Registration alone costs no variants: the edge
@@ -110,6 +110,20 @@ final class Membership {
 		if ( ! $this->platform->is_available() ) {
 			return;
 		}
+
+		/**
+		 * Filters the segmentation cookie lifetime in seconds.
+		 *
+		 * Providers re-assert membership on every origin request, so the
+		 * lifetime bounds how long a lapsed reader keeps the entitled view.
+		 * `Vary_Cache` refuses values under one hour.
+		 *
+		 * @since 0.1.0
+		 *
+		 * @param int $lifetime Lifetime in seconds. Default one day.
+		 */
+		$lifetime = (int) apply_filters( 'content_gates_cookie_lifetime', DAY_IN_SECONDS );
+		Vary_Cache::set_cookie_expiry( max( HOUR_IN_SECONDS, $lifetime ) );
 
 		$groups = array();
 		foreach ( $this->segments->all() as $segment ) {

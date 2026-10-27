@@ -48,7 +48,6 @@ final class Platform {
 	public function load(): void {
 		if ( class_exists( Vary_Cache::class, false ) ) {
 			$this->available = true;
-			$this->configure();
 			return;
 		}
 
@@ -56,7 +55,6 @@ final class Platform {
 		if ( is_readable( $platform_file ) ) {
 			require_once $platform_file;
 			$this->available = class_exists( Vary_Cache::class, false );
-			$this->configure();
 			return;
 		}
 
@@ -64,7 +62,6 @@ final class Platform {
 			require_once __DIR__ . '/vendor/class-vary-cache.php';
 			$this->available  = true;
 			$this->local_copy = true;
-			$this->configure();
 		}
 	}
 
@@ -84,25 +81,5 @@ final class Platform {
 	 */
 	public function is_local_copy(): bool {
 		return $this->local_copy;
-	}
-
-	/**
-	 * Apply plugin defaults to `Vary_Cache`.
-	 *
-	 * Providers re-assert membership on every origin request, so the cookie
-	 * lifetime bounds how long a lapsed reader keeps the entitled view.
-	 */
-	private function configure(): void {
-		/**
-		 * Filters the segmentation cookie lifetime in seconds.
-		 *
-		 * `Vary_Cache` refuses values under one hour.
-		 *
-		 * @since 0.1.0
-		 *
-		 * @param int $lifetime Lifetime in seconds. Default one day.
-		 */
-		$lifetime = (int) apply_filters( 'content_gates_cookie_lifetime', DAY_IN_SECONDS );
-		Vary_Cache::set_cookie_expiry( max( HOUR_IN_SECONDS, $lifetime ) );
 	}
 }

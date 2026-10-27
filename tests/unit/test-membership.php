@@ -25,6 +25,21 @@ use function Automattic\VIP\ContentGates\remove_reader_from_segment;
 final class Test_Membership extends Content_Gates_Test_Case {
 
 	/**
+	 * The cookie lifetime filter runs when groups are registered, so a theme
+	 * can change it; values under an hour are clamped to the hour.
+	 */
+	public function test_cookie_lifetime_filter_applies_at_registration(): void {
+		$expiry = new \ReflectionProperty( Vary_Cache::class, 'cookie_expiry' );
+		add_filter( 'content_gates_cookie_lifetime', static fn(): int => 2 * HOUR_IN_SECONDS );
+		$this->plugin()->membership()->register_groups();
+		$this->assertSame( 2 * HOUR_IN_SECONDS, $expiry->getValue() );
+
+		add_filter( 'content_gates_cookie_lifetime', static fn(): int => 1, 20 );
+		$this->plugin()->membership()->register_groups();
+		$this->assertSame( HOUR_IN_SECONDS, $expiry->getValue(), 'Clamped before Vary_Cache can warn.' );
+	}
+
+	/**
 	 * The bundled Vary_Cache copy loads in the local environment.
 	 */
 	public function test_platform_is_available_locally(): void {

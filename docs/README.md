@@ -50,7 +50,7 @@ releases before removal.
 | Hook | Arguments | Purpose |
 | --- | --- | --- |
 | `content_gates_declared_segments` | `string[] $segments, WP_Query $query` | Add segment keys to the declared set. Keys from block assignments and earlier declarations cannot be removed. Unknown and inactive keys are dropped. |
-| `content_gates_cookie_lifetime` | `int $seconds` | Lifetime of the `vip-go-seg` cookie. Default one day; `Vary_Cache` refuses less than one hour. |
+| `content_gates_cookie_lifetime` | `int $seconds` | Lifetime of the `vip-go-seg` cookie. Default one day; `Vary_Cache` refuses less than one hour. Applied on `init` priority 5, so a theme or plugin can filter it. |
 | `content_gates_newspack_rules` | `array $mappings` | Newspack rule to segment mappings for the bridge. See [providers.md](providers.md). |
 
 ### Response headers
