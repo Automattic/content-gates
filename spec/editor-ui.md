@@ -14,7 +14,7 @@ An entitled subscriber should retain access to the same full article they can re
 
 This spec covers assigning content to reader segments in the editor and verifying that those assignments affect delivery. For this slice, a segment is a custom post type record with a display name, an immutable key, and active/inactive status. Segments can be deactivated but cannot be deleted. Membership comes from an entitlement provider, except for anonymous metering and crawler classification.
 
-The block UI adds a **Segments** control to the settings for Group blocks (`core/group`). It lists the active segments on the current site by name and stores the selected segments' keys as a block attribute, together with a **Show to** toggle: readers in any of the selected segments, or readers in none of them. A Group may list more than one segment, for example subscriber and crawler. The restriction applies to the Group and its contents. A Group with no segments selected is unrestricted; that is the default. [decisions.md](decisions.md) holds the withholding and multi-segment semantics.
+The block UI adds a **Segments** control to the settings for Group blocks (`core/group`). It lists the active segments on the current site by name, ordered by type (boolean, crawler, meter) and then by key like the settings page, and stores the selected segments' keys as a block attribute, together with a **Show to** toggle: readers in any of the selected segments, or readers in none of them. A Group may list more than one segment, for example subscriber and crawler. The restriction applies to the Group and its contents. A Group with no segments selected is unrestricted; that is the default. [decisions.md](decisions.md) holds the withholding and multi-segment semantics.
 
 ## Use Cases
 

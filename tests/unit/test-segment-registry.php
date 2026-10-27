@@ -33,6 +33,26 @@ final class Test_Segment_Registry extends Content_Gates_Test_Case {
 	}
 
 	/**
+	 * Every list orders segments by type (boolean, crawler, meter), then by
+	 * key, never by name or creation order.
+	 */
+	public function test_lists_order_by_type_then_key(): void {
+		$this->create_meter( 'Aardvark meter' );
+		$this->create_segment( 'Zebra' );
+		$this->plugin()->segments()->sync_crawlers();
+		$this->create_segment( 'Alpha' );
+		$this->new_request();
+
+		$expected = array( 'alpha', 'zebra', 'crawlers-ai', 'crawlers-search', 'aardvark-meter' );
+		$this->assertSame( $expected, array_keys( $this->plugin()->segments()->all() ) );
+		$this->assertSame( $expected, array_keys( $this->plugin()->segments()->active() ) );
+
+		wp_cache_flush();
+		$this->new_request();
+		$this->assertSame( $expected, array_keys( $this->plugin()->segments()->all() ), 'The order holds after a cold load.' );
+	}
+
+	/**
 	 * Duplicate names get distinct keys within the length limit.
 	 */
 	public function test_duplicate_names_get_unique_keys(): void {

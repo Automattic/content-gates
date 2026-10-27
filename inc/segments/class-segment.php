@@ -68,6 +68,18 @@ final class Segment {
 	}
 
 	/**
+	 * The type a list sorts and labels by: `boolean`, `crawler`, or `meter`.
+	 *
+	 * A crawler segment is stored as a boolean segment with the crawler flag,
+	 * but every list shows it as its own type.
+	 *
+	 * @since 0.1.0
+	 */
+	public function sort_type(): string {
+		return $this->crawler ? 'crawler' : $this->type;
+	}
+
+	/**
 	 * Plain array form for REST, the editor, and WP-CLI.
 	 *
 	 * @since 0.1.0

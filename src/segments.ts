@@ -35,6 +35,8 @@ export interface SegmentOption {
 	checked: boolean;
 	crawler: boolean;
 	inactive: boolean;
+	/** Sort type: `boolean`, `crawler`, `meter`, or `~` for an unknown key. */
+	type: string;
 }
 
 let cached: Promise< Segment[] > | null = null;
@@ -156,7 +158,9 @@ function errorMessage( error: unknown ): string {
  * Active segments are always offered. An inactive segment appears only while
  * the Group still references it, labeled "(inactive)", so an editor can see
  * and clear the assignment. A referenced key the site does not know is shown
- * the same way, labeled "(not found)". Rows are sorted by label.
+ * the same way, labeled "(not found)". Rows are sorted by type (`boolean`,
+ * `crawler`, `meter`; unknown keys last), then by key, the same order as the
+ * settings page.
  *
  * @param segments Segment list from the REST route.
  * @param assigned Segment keys stored on the Group.
@@ -188,6 +192,7 @@ export function buildOptions(
 			checked,
 			crawler: segment.crawler,
 			inactive: ! segment.active,
+			type: segment.crawler ? 'crawler' : segment.type,
 		} );
 	}
 
@@ -202,10 +207,29 @@ export function buildOptions(
 			checked: true,
 			crawler: false,
 			inactive: true,
+			type: '~',
 		} );
 	}
 
-	return options.sort( ( a, b ) => a.label.localeCompare( b.label ) );
+	return options.sort( compareOptions );
+}
+
+/**
+ * Order two rows by type, then by key. Plain code-point order, like the
+ * server's `Segment_Registry::compare()`.
+ *
+ * @param a First row.
+ * @param b Second row.
+ * @return Negative when `a` sorts first.
+ */
+function compareOptions( a: SegmentOption, b: SegmentOption ): number {
+	if ( a.type !== b.type ) {
+		return a.type < b.type ? -1 : 1;
+	}
+	if ( a.key === b.key ) {
+		return 0;
+	}
+	return a.key < b.key ? -1 : 1;
 }
 
 /**

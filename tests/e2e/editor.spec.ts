@@ -31,6 +31,28 @@ test.describe( 'editor assignment', () => {
 			await page.getByRole( 'button', { name: 'Segments' } ).click();
 		}
 		await expect( panel ).toBeVisible();
+		// Same order as the settings page: by type, then key. Segments left
+		// behind by the admin spec are ignored.
+		const labels = await panel
+			.getByRole( 'checkbox' )
+			.evaluateAll( ( nodes ) =>
+				nodes.map(
+					( node ) =>
+						document
+							.querySelector( `label[for="${ node.id }"]` )
+							?.textContent?.trim() ?? ''
+				)
+			);
+		expect(
+			labels.filter( ( label ) => ! label.startsWith( 'E2E Segment' ) )
+		).toEqual( [
+			'Donor',
+			'Newsletter',
+			'Subscriber',
+			'AI crawlers',
+			'Search crawlers',
+			'Metered articles',
+		] );
 		await panel
 			.getByRole( 'checkbox', { name: 'Subscriber', exact: true } )
 			.check();

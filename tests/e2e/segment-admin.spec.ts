@@ -18,6 +18,24 @@ test.describe( 'segment admin', () => {
 			page.getByRole( 'heading', { name: 'Content Gates', level: 1 } )
 		).toBeVisible();
 
+		// Seeded rows come by type, then key: readers, crawlers, meters.
+		const seededKeys = await page
+			.locator( '#content-gates-segments tr[data-key]' )
+			.evaluateAll( ( rows ) =>
+				rows.map( ( row ) => row.getAttribute( 'data-key' ) )
+			);
+		// Earlier runs of this spec leave their own segments behind.
+		expect(
+			seededKeys.filter( ( key ) => ! key?.startsWith( 'e2e-segment-' ) )
+		).toEqual( [
+			'donor',
+			'newsletter',
+			'subscriber',
+			'crawlers-ai',
+			'crawlers-search',
+			'metered-articles',
+		] );
+
 		// Create.
 		await page.getByLabel( 'Name', { exact: true } ).fill( name );
 		await page.getByRole( 'button', { name: 'Add segment' } ).click();

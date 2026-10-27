@@ -141,7 +141,10 @@ final class Segment_Registry {
 	}
 
 	/**
-	 * Every segment, active and inactive, keyed by key and sorted by name.
+	 * Every segment, active and inactive, keyed by key.
+	 *
+	 * The order is the one every list shows: by type (`boolean`, `crawler`,
+	 * `meter`), then by key. See `Segment::sort_type()`.
 	 *
 	 * @since 0.1.0
 	 *
@@ -185,6 +188,19 @@ final class Segment_Registry {
 		$this->segments = $this->hydrate( $rows );
 
 		return $this->segments;
+	}
+
+	/**
+	 * Order two segments by type, then by key.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @param Segment $a First.
+	 * @param Segment $b Second.
+	 * @return int Negative when `$a` sorts first.
+	 */
+	public static function compare( Segment $a, Segment $b ): int {
+		return array( $a->sort_type(), $a->key ) <=> array( $b->sort_type(), $b->key );
 	}
 
 	/**
@@ -807,6 +823,7 @@ final class Segment_Registry {
 				$this->group_name_for( $key, $crawler )
 			);
 		}
+		uasort( $segments, array( self::class, 'compare' ) );
 
 		return $segments;
 	}
