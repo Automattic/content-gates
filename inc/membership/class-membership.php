@@ -37,9 +37,10 @@ use WP_Error;
  *   sends `Vary` and the cookie when the declared set is sent.
  *
  * Writes are idempotent: assigning a value the reader already has, or
- * removing a group they are not in, changes nothing and sends no cookie.
- * Removing the reader's last group expires the cookie, which upstream
- * `Vary_Cache` does not do by itself.
+ * removing a group they are not in, changes nothing and sends no cookie,
+ * so a provider that reasserts membership on every request leaves the
+ * response storable. Removing the reader's last group expires the cookie,
+ * which upstream `Vary_Cache` does not do by itself.
  *
  * @since 0.1.0
  */
@@ -323,9 +324,6 @@ final class Membership {
 	 * @return true|WP_Error
 	 */
 	private function write( Segment $segment, string $value ): true|WP_Error {
-		// A write that changes nothing is a no-op: no dirty flag and no
-		// `Set-Cookie`, so a provider that reasserts membership on every
-		// request leaves the response storable.
 		if ( ( $this->cookie_value( $segment ) ?? '' ) === $value ) {
 			return true;
 		}
@@ -408,15 +406,12 @@ final class Membership {
 		}
 
 		if ( ! $this->declared->allows_read( $segment->key ) ) {
-			_doing_it_wrong(
-				esc_html( $function_name ),
-				sprintf(
-					/* translators: %s: segment key */
-					esc_html__( 'Segment "%s" was read but not declared for this request. Declare it on the `wp` action or through the content_gates_declared_segments filter.', 'content-gates' ),
-					esc_html( $segment->key )
-				),
-				'0.1.0'
-			);
+			$message = in_array( $segment->key, $this->declared->keys(), true )
+				/* translators: %s: segment key */
+				? __( 'Segment "%s" was read before the declared set was final. Read it on template_redirect or later.', 'content-gates' )
+				/* translators: %s: segment key */
+				: __( 'Segment "%s" was read but not declared for this request. Declare it on the `wp` action or through the content_gates_declared_segments filter.', 'content-gates' );
+			_doing_it_wrong( esc_html( $function_name ), esc_html( sprintf( $message, $segment->key ) ), '0.1.0' );
 			return null;
 		}
 

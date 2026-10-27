@@ -381,6 +381,54 @@ export class ClientResponseOutput {
 	skipped: string = '';
 }
 
+/** What origin said about `vip-go-seg` on this response. */
+class OriginSegmentation {
+	/** The value to build on, or null for "no groups". */
+	value: string | null = null;
+	/** Attributes of origin's own `vip-go-seg` field, or null when none. */
+	attributes: string | null = null;
+	/** Every other `Set-Cookie` field, in order. */
+	otherCookies: string[] = [];
+}
+
+/**
+ * Origin's decision on this response wins over the request cookie: the
+ * last `vip-go-seg` field is it, and one that expires the cookie means "no
+ * groups". Without one, the request cookie stands.
+ *
+ * @param setCookies   The response's `Set-Cookie` fields.
+ * @param lookupCookie The request's `vip-go-seg` value, or null.
+ * @param now          Epoch seconds, to read an `Expires` in the past.
+ * @return The value to build on and the other cookies.
+ */
+function originsSegmentation(
+	setCookies: string[],
+	lookupCookie: string | null,
+	now: f64
+): OriginSegmentation {
+	const out = new OriginSegmentation();
+	out.value = lookupCookie;
+	for ( let i = 0; i < setCookies.length; i++ ) {
+		const field = setCookies[ i ];
+		const parts = parseSetCookie( field );
+		if ( parts === null || parts.name != SEGMENT_COOKIE ) {
+			out.otherCookies.push( field );
+			continue;
+		}
+		if (
+			parts.value.length == 0 ||
+			expiresCookie( parts.attributes, now )
+		) {
+			out.value = null;
+			out.attributes = null;
+		} else {
+			out.value = parts.value;
+			out.attributes = parts.attributes;
+		}
+	}
+	return out;
+}
+
 /**
  * Phase 4 decision logic: advance every announced meter and write both
  * cookies, or do nothing.
@@ -440,34 +488,16 @@ export function onClientResponsePure(
 
 	const lookupCookie = getCookie( input.cookie, SEGMENT_COOKIE );
 	const lookupGroups = parseSegmentation( lookupCookie );
-
-	// Base segmentation: origin's decision on this response wins over the
-	// request cookie. The last `vip-go-seg` field is it; one that expires
-	// the cookie means "no groups". Every other cookie is kept as sent.
-	let base: string | null = lookupCookie;
-	let originAttributes: string | null = null;
-	const kept: string[] = [];
-	for ( let i = 0; i < input.setCookies.length; i++ ) {
-		const field = input.setCookies[ i ];
-		const parts = parseSetCookie( field );
-		if ( parts === null || parts.name != SEGMENT_COOKIE ) {
-			kept.push( field );
-			continue;
-		}
-		if (
-			parts.value.length == 0 ||
-			expiresCookie( parts.attributes, input.now )
-		) {
-			base = null;
-			originAttributes = null;
-		} else {
-			base = parts.value;
-			originAttributes = parts.attributes;
-		}
-	}
+	const origin = originsSegmentation(
+		input.setCookies,
+		lookupCookie,
+		input.now
+	);
+	const kept = origin.otherCookies;
+	const originAttributes = origin.attributes;
 
 	const groups: Groups = withoutGroups(
-		parseSegmentation( base ),
+		parseSegmentation( origin.value ),
 		crawlerKeys()
 	);
 	const records: MeterRecord[] = parseMeterCookie(

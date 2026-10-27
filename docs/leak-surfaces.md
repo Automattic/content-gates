@@ -12,7 +12,7 @@ observed on a VIP application yet.
 | Nested Groups | Inner gate enforced inside allowed outer; inner key declared even when outer denies | `Test_Block_Gate::test_nested_groups`, `gating.spec.ts` "nested Groups" | |
 | Dynamic child blocks | Render callback does not run when denied | `Test_Block_Gate::test_dynamic_child_callback_does_not_run_when_denied` | |
 | Author-hidden Groups | Stay hidden for entitled readers | `Test_Block_Gate::test_author_hidden_group_stays_hidden_for_members` | Core visibility is applied after rendering; a denied Group never reaches it |
-| REST `content.rendered` | No gated bytes; declared header; `Vary` sent | `Test_REST`, `gating.spec.ts` "feeds and REST" | `rest_pre_echo_response` covers `_embed` |
+| REST `content.rendered` | No gated bytes; declared header; `Vary` sent | `Test_REST`, `gating.spec.ts` "feeds, REST, embeds, and search" | `rest_pre_echo_response` covers `_embed` |
 | REST `excerpt.rendered` | No gated bytes | `Test_REST::test_anonymous_post_response_withholds_and_declares` | Through the excerpt guard |
 | REST `content.raw` | Not reachable anonymously | Core: `context=edit` requires `edit_post` | Entitled editors see raw content by design |
 | REST `POST` with unknown key | Rejected with 400 | `Test_Content_Meta::test_rest_save_rejects_unknown_key`, `editor.spec.ts` | |
@@ -20,9 +20,9 @@ observed on a VIP application yet.
 | RSS/Atom summaries | No gated bytes | same | Through the excerpt guard |
 | Auto-excerpts (archives, search, embeds) | No gated bytes; fully gated post yields `''` | `Test_Excerpt_Guard` | Core's `excerpt_remove_blocks()` unwraps Groups; the guard replaces its output |
 | Manual excerpts | Untouched | `Test_Excerpt_Guard::test_manual_excerpt_is_untouched` | Public editorial text, the author's responsibility |
-| `/embed/` template | No gated bytes | `gating.spec.ts` "feeds and REST" | Singular path plus the excerpt guard |
+| `/embed/` template | No gated bytes | `gating.spec.ts` "feeds, REST, embeds, and search" | Singular path plus the excerpt guard |
 | oEmbed REST (`/oembed/1.0/embed`) | Known limitation, low | not tested | Returns the title, author, and an iframe to `/embed/`; no content |
-| Search | Known limitation | `gating.spec.ts` asserts no bytes in results | A search for a gated phrase still matches the post (existence, not bytes). Not addressed |
+| Search | Known limitation | `gating.spec.ts` "feeds, REST, embeds, and search" asserts no bytes in results | A search for a gated phrase still matches the post (existence, not bytes). Not addressed |
 | Head metadata (`og:description`, meta description) | Covered when derived from `get_the_excerpt()` | `Test_Excerpt_Guard` | SEO plugins that read `post_content` directly are outside the plugin |
 | Sitemaps | No content | core sitemaps list URLs only | |
 | Listing teasers (`the_content()` on archives) | No gated bytes, for everyone | by design: archives declare nothing, reads fail closed | A theme that shows full content on archives must declare |

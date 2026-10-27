@@ -214,7 +214,7 @@ final class Commands {
 			WP_CLI::error( $result->get_error_message() );
 		}
 
-		WP_CLI::success( sprintf( 'Meter %s: %d per %d seconds.', $result->key, $result->limit, $result->period ) );
+		WP_CLI::success( sprintf( 'Meter %s: %d per %s days.', $result->key, $result->limit, (string) round( $result->period / DAY_IN_SECONDS, 2 ) ) );
 	}
 
 	/**

@@ -178,10 +178,7 @@ onOriginResponse( ( resp: Response ): void => {
 
 	const out = onOriginResponsePure( input );
 
-	// Always, stored with the copy: the key this request resolved to.
-	// Edge Workers have no logs; this header and origin's declared header
-	// are the evidence.
-	resp.headers.set( KEY_HEADER, out.key );
+	resp.headers.set( KEY_HEADER, out.key ); // Whatever the decision; see KEY_HEADER.
 
 	if ( out.noStore ) {
 		resp.setCacheControl( 'no-store' );
@@ -220,8 +217,7 @@ onClientResponse( ( resp: Response ): void => {
 	if ( ! out.replace ) {
 		return;
 	}
-	// The response's Set-Cookie list is rewritten as a whole so that exactly
-	// one vip-go-seg field reaches the browser, with origin's decision in it.
+	// Replace the whole list; see onClientResponsePure.
 	resp.headers.delete( 'set-cookie' );
 	for ( let i = 0; i < out.setCookies.length; i++ ) {
 		resp.headers.append( 'set-cookie', out.setCookies[ i ] );

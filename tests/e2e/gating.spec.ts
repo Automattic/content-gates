@@ -94,7 +94,7 @@ test.describe( 'gating at origin', () => {
 		await ctx.dispose();
 	} );
 
-	test( 'feeds and REST withhold the Group for anonymous readers', async ( {
+	test( 'feeds, REST, embeds, and search withhold the Group for anonymous readers', async ( {
 		baseURL,
 	} ) => {
 		const ctx = await anonymous( baseURL! );

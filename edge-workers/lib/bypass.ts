@@ -11,8 +11,8 @@
  * static files never carry `Vary: X-VIP-Go-Segmentation`, and a shared
  * cache never stores responses to non-GET requests, authenticated
  * requests, or logged-in sessions. Phase 1 still sends the edge version
- * header and marks the lookup as `bypass`, so origin's echo shows that the
- * worker ran, and phase 3 refuses to store anything that arrives with that
+ * header, so origin can tell the worker ran, and marks the lookup as
+ * `bypass`, so phase 3 refuses to store anything that arrives with that
  * mark (fail closed, as for a missing marker). Phase 4 skips metering for
  * the same requests.
  *

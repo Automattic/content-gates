@@ -260,9 +260,6 @@ final class Declared_Set {
 		}
 
 		$this->apply_filter( $query );
-
-		// Crawler segments are declared only when an editor assigned them to
-		// a Group, like any other segment. Nothing is added here.
 		$this->close_and_send();
 	}
 

@@ -72,7 +72,7 @@ export function sortNames( names: string[] ): string[] {
 }
 
 /**
- * An ordered multimap of group name to value with no duplicate names.
+ * An ordered map of group name to value.
  *
  * Two parallel arrays instead of a Map: AssemblyScript's Map throws on a
  * missing key and its iteration API differs from JavaScript's, so arrays
