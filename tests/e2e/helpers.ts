@@ -1,4 +1,8 @@
 import { request, type APIRequestContext } from '@playwright/test';
+import {
+	Groups,
+	serializeSegmentation,
+} from '../../edge-workers/lib/segmentation.ts';
 
 /**
  * Markers written into the seeded demo posts by `wp content-gates-dev seed`
@@ -60,15 +64,17 @@ export async function reader(
 }
 
 /**
- * Serialize groups the way Vary_Cache writes the cookie.
+ * Serialize groups the way Vary_Cache writes the cookie, through the edge
+ * library's serializer so the e2e suite and the worker agree by construction.
  *
  * @param groups Group name to value.
  */
 export function serialize( groups: Record< string, string > ): string {
-	const pairs = Object.keys( groups )
-		.sort()
-		.map( ( name ) => `${ name }_--_${ groups[ name ] }` );
-	return 'vc-v1__' + pairs.join( '---__' );
+	const parsed = new Groups();
+	for ( const name of Object.keys( groups ) ) {
+		parsed.set( name, groups[ name ] );
+	}
+	return serializeSegmentation( parsed );
 }
 
 /**

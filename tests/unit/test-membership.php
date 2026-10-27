@@ -212,20 +212,12 @@ final class Test_Membership extends Content_Gates_Test_Case {
 	 */
 	public function test_vary_cache_fires_did_send_headers(): void {
 		$this->create_segment( 'Subscriber' );
-		$sent = array();
-		add_action(
-			'vip_vary_cache_did_send_headers',
-			static function ( bool $vary, bool $cookie ) use ( &$sent ): void {
-				$sent = array( $vary, $cookie );
-			},
-			10,
-			2
-		);
+		$sent = $this->capture_did_send_headers();
 
 		assign_reader_to_segment( 'subscriber' );
 		$this->request_page( home_url( '/' ) );
 
-		$this->assertSame( array( true, true ), $sent );
+		$this->assertSame( array( true, true ), $sent() );
 	}
 
 	/**
@@ -302,26 +294,6 @@ final class Test_Membership extends Content_Gates_Test_Case {
 		$this->assertSame( array(), Headers::values( 'Set-Cookie' ), 'No expiry.' );
 	}
 
-	/**
-	 * Record the arguments of the next `vip_vary_cache_did_send_headers`.
-	 *
-	 * @return callable(): array<int, bool> Returns the recorded pair, or an empty array before it fired.
-	 */
-	private function capture_did_send_headers(): callable {
-		$sent = array();
-		add_action(
-			'vip_vary_cache_did_send_headers',
-			static function ( bool $vary, bool $cookie ) use ( &$sent ): void {
-				$sent = array( $vary, $cookie );
-			},
-			10,
-			2
-		);
-
-		return static function () use ( &$sent ): array {
-			return $sent;
-		};
-	}
 
 	/**
 	 * Assert a WP_Error with a code.

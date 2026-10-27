@@ -314,10 +314,7 @@ final class Segment_Registry {
 			return $result;
 		}
 
-		$this->flush();
-		$updated = $this->resolve( $segment->id );
-
-		return $updated ?? new WP_Error( 'content_gates_invalid_segment', __( 'Unknown segment.', 'content-gates' ) );
+		return $this->reload( $segment->id );
 	}
 
 	/**
@@ -356,13 +353,7 @@ final class Segment_Registry {
 			return $result;
 		}
 
-		$this->flush();
-		$updated = $this->resolve( $segment->id );
-		if ( null === $updated ) {
-			return new WP_Error( 'content_gates_invalid_segment', __( 'Unknown segment.', 'content-gates' ) );
-		}
-
-		return $updated;
+		return $this->reload( $segment->id );
 	}
 
 	/**
@@ -392,14 +383,20 @@ final class Segment_Registry {
 
 		update_post_meta( $segment->id, self::META_LIMIT, $limit );
 		update_post_meta( $segment->id, self::META_PERIOD, $period );
+
+		return $this->reload( $segment->id );
+	}
+
+	/**
+	 * Re-read a segment after a write.
+	 *
+	 * @param int $id Post ID.
+	 * @return Segment|WP_Error
+	 */
+	private function reload( int $id ): Segment|WP_Error {
 		$this->flush();
 
-		$updated = $this->resolve( $segment->id );
-		if ( null === $updated ) {
-			return new WP_Error( 'content_gates_invalid_segment', __( 'Unknown segment.', 'content-gates' ) );
-		}
-
-		return $updated;
+		return $this->resolve( $id ) ?? new WP_Error( 'content_gates_invalid_segment', __( 'Unknown segment.', 'content-gates' ) );
 	}
 
 	/**

@@ -135,20 +135,14 @@ final class Test_Segment_Registry extends Content_Gates_Test_Case {
 	 */
 	public function test_status_change_requests_global_purge(): void {
 		$segment = $this->create_segment( 'Subscriber' );
-		$reasons = array();
-		add_action(
-			'content_gates_purge_all',
-			static function ( string $reason ) use ( &$reasons ): void {
-				$reasons[] = $reason;
-			}
-		);
+		$reasons = $this->capture_purges();
 
 		$this->plugin()->segments()->set_active( $segment->id, false );
-		$this->assertCount( 1, $reasons );
-		$this->assertStringContainsString( 'deactivated', $reasons[0] );
+		$this->assertCount( 1, $reasons() );
+		$this->assertStringContainsString( 'deactivated', $reasons()[0] );
 
 		$this->plugin()->segments()->set_active( $segment->id, false );
-		$this->assertCount( 1, $reasons, 'No change, no purge.' );
+		$this->assertCount( 1, $reasons(), 'No change, no purge.' );
 	}
 
 	/**
@@ -235,24 +229,6 @@ final class Test_Segment_Registry extends Content_Gates_Test_Case {
 		$this->assertSame( 3, $this->plugin()->segments()->resolve( $meter->id )?->limit );
 	}
 
-	/**
-	 * Record every global purge request from now on.
-	 *
-	 * @return callable(): string[] The reasons recorded so far.
-	 */
-	private function capture_purges(): callable {
-		$reasons = array();
-		add_action(
-			'content_gates_purge_all',
-			static function ( string $reason ) use ( &$reasons ): void {
-				$reasons[] = $reason;
-			}
-		);
-
-		return static function () use ( &$reasons ): array {
-			return $reasons;
-		};
-	}
 
 	/**
 	 * References resolve by key and by ID; unknown references resolve to null.

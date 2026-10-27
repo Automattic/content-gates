@@ -209,7 +209,7 @@ onClientResponse( ( resp: Response ): void => {
 	input.method = snapshot.method;
 	input.url = snapshot.url;
 	input.authorization = snapshot.headers.get( 'authorization' ) !== null;
-	input.setCookies = headerValues( resp, 'set-cookie' );
+	input.setCookies = resp.headers.getSetCookie();
 	input.secret = getenv( METER_SECRET_ENV );
 	input.now = responseTime(
 		resp.headers.get( 'date' ),

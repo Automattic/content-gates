@@ -140,8 +140,6 @@ final class Segment_Admin {
 			return;
 		}
 
-		$this->segments->maybe_sync_crawlers();
-
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html__( 'Content Gates', 'content-gates' ) . '</h1>';
 		$this->render_notice();

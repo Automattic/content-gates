@@ -129,20 +129,12 @@ final class Test_REST extends Content_Gates_Test_Case {
 				),
 			)
 		);
-		$sent = array();
-		add_action(
-			'vip_vary_cache_did_send_headers',
-			static function ( bool $vary, bool $cookie ) use ( &$sent ): void {
-				$sent = array( $vary, $cookie );
-			},
-			10,
-			2
-		);
+		$sent = $this->capture_did_send_headers();
 
 		$data = $this->serve( '/content-gates-test/v1/join', 'POST' );
 
 		$this->assertTrue( $data['result'] );
-		$this->assertSame( array( true, true ), $sent, 'Vary and the cookie were sent before the JSON.' );
+		$this->assertSame( array( true, true ), $sent(), 'Vary and the cookie were sent before the JSON.' );
 	}
 
 	/**

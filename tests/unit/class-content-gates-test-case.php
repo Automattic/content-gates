@@ -291,6 +291,46 @@ abstract class Content_Gates_Test_Case extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Record the arguments of the next `vip_vary_cache_did_send_headers`.
+	 *
+	 * @return callable(): array<int, bool> The recorded pair, or an empty array before it fired.
+	 */
+	protected function capture_did_send_headers(): callable {
+		$sent = array();
+		add_action(
+			'vip_vary_cache_did_send_headers',
+			static function ( bool $vary, bool $cookie ) use ( &$sent ): void {
+				$sent = array( $vary, $cookie );
+			},
+			10,
+			2
+		);
+
+		return static function () use ( &$sent ): array {
+			return $sent;
+		};
+	}
+
+	/**
+	 * Record every global purge request from now on.
+	 *
+	 * @return callable(): string[] The reasons recorded so far.
+	 */
+	protected function capture_purges(): callable {
+		$reasons = array();
+		add_action(
+			'content_gates_purge_all',
+			static function ( string $reason ) use ( &$reasons ): void {
+				$reasons[] = $reason;
+			}
+		);
+
+		return static function () use ( &$reasons ): array {
+			return $reasons;
+		};
+	}
+
+	/**
 	 * Render a post's content the way `the_content()` does inside the loop.
 	 *
 	 * @param int $post_id Post ID.

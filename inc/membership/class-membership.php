@@ -326,7 +326,7 @@ final class Membership {
 		// A write that changes nothing is a no-op: no dirty flag and no
 		// `Set-Cookie`, so a provider that reasserts membership on every
 		// request leaves the response storable.
-		if ( $this->current_value( $segment ) === $value ) {
+		if ( ( $this->cookie_value( $segment ) ?? '' ) === $value ) {
 			return true;
 		}
 
@@ -344,18 +344,6 @@ final class Membership {
 		$this->dirty = true;
 
 		return true;
-	}
-
-	/**
-	 * The value `Vary_Cache` holds for a segment right now, trimmed; empty when none.
-	 *
-	 * @param Segment $segment Segment.
-	 */
-	private function current_value( Segment $segment ): string {
-		$groups = Vary_Cache::get_groups();
-		$value  = $groups[ $segment->group_name ] ?? '';
-
-		return is_string( $value ) ? trim( $value ) : '';
 	}
 
 	/**
@@ -446,6 +434,18 @@ final class Membership {
 			return '' === $value ? null : $value;
 		}
 
+		return $this->cookie_value( $segment );
+	}
+
+	/**
+	 * The value `Vary_Cache` holds for a segment, or null when none.
+	 *
+	 * Ignores the View As override: a write compares against the cookie the
+	 * reader really sent.
+	 *
+	 * @param Segment $segment Segment.
+	 */
+	private function cookie_value( Segment $segment ): ?string {
 		if ( ! $this->platform->is_available() ) {
 			return null;
 		}

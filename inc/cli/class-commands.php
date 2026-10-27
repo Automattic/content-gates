@@ -65,8 +65,6 @@ final class Commands {
 	public function list_segments( array $args, array $assoc_args ): void {
 		unset( $args );
 
-		$this->plugin->segments()->maybe_sync_crawlers();
-
 		$items = array();
 		foreach ( $this->plugin->segments()->all() as $segment ) {
 			$row           = $segment->to_array();
