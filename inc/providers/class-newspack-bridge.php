@@ -15,8 +15,11 @@ use Automattic\VIP\ContentGates\Membership\Membership;
  * Maps Newspack access-rule evaluations to segment membership.
  *
  * Newspack decides eligibility (`Newspack\Access_Rules::evaluate_rule()`);
- * this bridge turns each decision into an assignment on every origin
- * request. Sites configure the mapping through a filter:
+ * this bridge turns each decision into an assignment or removal on requests
+ * the edge did not narrow, which in practice means logged-in requests and
+ * Newspack's own POST flows (login, checkout, logout). Wiring it to those
+ * events instead of `init` is the next step (docs/providers.md). Sites
+ * configure the mapping through a filter:
  *
  *     add_filter( 'content_gates_newspack_rules', fn() => array(
  *         array( 'segment' => 'subscriber', 'rule' => 'subscription', 'value' => array( 123 ) ),
@@ -60,7 +63,7 @@ final class Newspack_Bridge {
 	 * @since 0.1.0
 	 */
 	public function sync(): void {
-		if ( ! class_exists( self::RULES_CLASS ) ) {
+		if ( ! class_exists( self::RULES_CLASS ) || Membership::request_is_narrowed() ) {
 			return;
 		}
 

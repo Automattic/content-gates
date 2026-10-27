@@ -44,8 +44,11 @@ Rules:
   to one is refused.
 - **Writes are idempotent.** Assigning a value the reader already holds, or
   removing a group they are not in, returns `true` and writes nothing: no
-  dirty flag, no `Set-Cookie`. A provider can reassert membership on every
-  request and entitled responses stay storable at the edge.
+  dirty flag, no `Set-Cookie`.
+- **Write once, remove explicitly, never on a page view.** Set membership
+  from a POST, a logged-in request, or your own endpoint; the edge forwards
+  those with the full cookie. On a request the edge narrowed, writers
+  return `content_gates_narrowed_request` and change nothing.
 - **Removing the last group expires the cookie.** Upstream `Vary_Cache`
   skips its write when every group is empty, which would leave the reader a
   member on the next request. The plugin expires `vip-go-seg` (or
@@ -63,6 +66,7 @@ Rules:
 | `content_gates_inactive_segment` | assign, declare | The segment is inactive |
 | `content_gates_invalid_value` | assign | Bad characters, or a meter segment |
 | `content_gates_platform_unavailable` | assign, remove | `Vary_Cache` is not loaded outside a `local` environment |
+| `content_gates_narrowed_request` | assign, remove | The edge narrowed this request's cookie. Write from a POST, a logged-in request, or your own endpoint instead |
 
 ## Timing
 

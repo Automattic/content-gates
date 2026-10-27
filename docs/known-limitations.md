@@ -17,41 +17,35 @@ a WPVIP application before any of it is a product claim.
 - **Meter counts subscribers too.** The worker does not know gating
   semantics. Harmless while subscribed.
 
-## Platform questions (unverified on WPVIP)
+## Platform questions
 
-1. Can a phase 1 worker rewrite `X-VIP-Go-Segmentation`, and does the cache
-   key on the rewritten value? The whole narrowing design depends on it.
-2. Can a phase 3 worker set `Cache-Control: no-store` so the cache does not
-   store the response? The SDK's `setCacheControl()` suggests yes.
-3. KV read latency in phase 1, write visibility across edge locations, and
-   eviction rate. KV is non-durable; eviction costs one miss per URL, not a
-   leak.
-4. Can origin write to edge KV at save time? Not needed for correctness.
-5. Encrypted mode (`vip-go-auth`): can a worker read and rewrite the
+Open questions only. What has been observed on WPVIP (first live pass,
+`content-gates-prototype.go-vip.net`, 2026-10-27) is stated as fact where
+it applies: keying on the forwarded cookie and the provider write rule in
+`spec/decisions.md`; `no-store`, the pass window, KV visibility, both
+purges, and metering in `spec/page-cache.md`; the request snapshot, phases
+on passes, dropped empty header values, `Date` on hits, and the meter
+secret in `docs/edge-worker.md`.
+
+1. KV eviction rate. Writes are visible everywhere within a second, but
+   how often records are evicted decides how much narrowing is lost; an
+   eviction costs one miss per URL per location, never a leak.
+2. Can origin write to edge KV at save time? Not needed for correctness.
+3. Encrypted mode (`vip-go-auth`): can a worker read and rewrite the
    decrypted groups? The worker is written for plaintext mode only.
-6. The cap on stored variants per URL.
-7. Can the worker hold a signing secret (`getenv`) and is JA3/JA4 exposed for
-   cookie binding? `getenv` exists in the SDK; JA3 is not documented.
-8. Does `resp.request` (the request snapshot the coverage check reads) exist
-   on the deployed runtime? The SDK README says it needs runtime support.
-   When the markers are absent, phase 3 sets `no-store` on every segmented
-   response, so the failure costs cache hits, not safety. The answer is
-   readable from outside: `X-WPVIP-Content-Gates-Key` reads `-` on a
-   response that carries a declared set (see
-   [edge-worker.md](edge-worker.md#diagnostic-headers)).
-9. Does VIP's site purge (`WPCOM_VIP_Cache_Manager::purge_site_cache()`)
-   exist under that name and purge every variant? The default listener
-   guards with `method_exists`.
-10. Is `Date` (and `Age`) reliably present on hits, or is a host clock
-    available to workers? Phase 4's meter clock comes from them; without
-    `Age` it lags by up to the TTL on hits.
-11. Does `Vary_Cache` at origin re-serialize groups it did not register,
-    so a meter value survives a miss that rewrote the cookie? The source
-    suggests yes. Phase 4 no longer depends on it for counting, only for
-    the groups it merges the next state into.
-12. Does the VIP edge expose verified-bot information (IP ranges or
-    reverse DNS) to a worker? Without it, crawler classification stays
-    user-agent based and spoofable (accepted risk).
+4. The cap on stored variants per URL.
+5. JA3/JA4 for cookie binding is not documented for workers. (The meter
+   secret itself is settled: `getenv('CONTENT_GATES_METER_SECRET')` reads
+   the application environment variable, observed 2026-10-27. The earlier
+   null reading came from a variable that was not set, not from a
+   platform gap.)
+6. Does `Vary_Cache` at origin re-serialize groups it did not register,
+   so a meter value survives a miss that rewrote the cookie? The source
+   suggests yes. Phase 4 depends on it only for the groups it merges the
+   next state into, not for counting.
+7. Does the VIP edge expose verified-bot information (IP ranges or
+   reverse DNS) to a worker? Without it, crawler classification stays
+   user-agent based and spoofable (accepted risk).
 
 This list is the single source; spec/page-cache.md and edge-worker.md
 point here by number.
@@ -101,6 +95,6 @@ functions; the formats that cross the origin/edge boundary are pinned in
 `tests/fixtures/edge-contract.json` and checked on both sides; and
 multi-request sequences run through an in-memory edge that applies only
 the cache rules the design depends on (`edge-workers/tests/edge-harness.ts`).
-Whether WPVIP's cache follows those rules is the platform-question list
-above. Treat every edge claim in this repository as "designed and tested
-under the contract", not "observed".
+Those rules were observed on WPVIP on 2026-10-27 (see the platform
+questions above for what is still open). A platform change would not show
+up locally; re-run the live validation scenarios after one.

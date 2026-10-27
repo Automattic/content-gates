@@ -1,20 +1,29 @@
 # Providers
 
 An entitlement provider decides who is entitled. This plugin never does.
-The provider's job is small: on every origin request, assign the reader to
-the segments they qualify for and remove them from the ones they do not,
-inside the write window.
+The provider's job is small: when a reader becomes entitled, assign them
+to the segment once; when the entitlement lapses, remove them. Ordinary
+page views never write membership.
 
 ## The contract
 
 - Call `assign_reader_to_segment()` and `remove_reader_from_segment()`
   after `init` priority 10 and before `send_headers`. `init` priority 20 is
   a good default.
-- Assign on every origin request, for logged-in and anonymous readers
-  alike. Login grants nothing by itself. The cookie lifetime (one day by
-  default, `content_gates_cookie_lifetime`) bounds how long a lapsed reader
-  keeps the entitled view, so no refresh endpoint or client script is
-  needed.
+- Write on a request the edge forwards with the full cookie: a POST, an
+  authenticated or logged-in request, or a URL the edge has no record for.
+  On a request the Edge Worker narrowed, both calls return
+  `content_gates_narrowed_request` and change nothing. In practice: assign
+  from your login, checkout, or redemption flow; remove from logout or
+  cancellation; and act on logged-in requests if you like, since those are
+  never cached. Never evaluate entitlement on anonymous page views.
+- The cookie lifetime (`content_gates_cookie_lifetime`, one day by default)
+  is the only bound on a lapsed entitlement for a reader who never makes
+  another full-cookie request, and it is also how often a valid reader has
+  to be re-set. Choose it for your product. When the cookie expires or is
+  cleared, nothing restores it on a page view: logged-in readers get it
+  back on their next request if you act there; anonymous entitled readers
+  need your endpoint and a small client nudge on gated pages.
 - A provider that acts on a form POST redirects on WPVIP's
   `vip_vary_cache_did_send_headers( $sent_vary, $sent_cookie )` action,
   which fires after `Vary_Cache` wrote the cookie. The following GET carries

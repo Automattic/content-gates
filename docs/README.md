@@ -6,8 +6,9 @@ decisions onto cache segments, removes restricted content from page, REST,
 and feed responses at origin, and tells the edge exactly which segments each
 URL may vary on.
 
-This is a prototype. Everything about the WPVIP edge is designed and
-tested as a contract; nothing has run on a VIP application yet. See
+This is a prototype. The WPVIP edge is designed and tested as a contract,
+and a first live pass on a VIP application (2026-10-27) answered some of
+the platform questions. See
 [known-limitations.md](known-limitations.md) before drawing platform
 conclusions.
 

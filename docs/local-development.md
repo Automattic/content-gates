@@ -116,7 +116,7 @@ npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates 
 | `X-WPVIP-Content-Gates-Meter` | A meter is in play on this singular page |
 | `Vary: X-VIP-Go-Segmentation` | `Vary_Cache` is active (any group registered) |
 | `X-VIP-Go-Segmentation-Debug` | Full membership, `WP_DEBUG` only, from `Vary_Cache` |
-| `X-WPVIP-Content-Gates-Key` | The key the edge resolved the request to: the narrowed segmentation value, `none`, `bypass`, or `-` when phase 3 saw no phase 1 rewrite |
+| `X-WPVIP-Content-Gates-Key` | The key the edge resolved the request to: the narrowed segmentation value, `none`, `bypass`, or `-` when phase 3 saw no phase 1 marker |
 
 On a VIP application, comparing `X-VIP-Go-Segmentation-Debug` with
 `X-WPVIP-Content-Gates-Key` shows what the edge narrowed away.

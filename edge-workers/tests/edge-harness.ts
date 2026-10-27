@@ -4,9 +4,11 @@
  *
  * The rules, and nothing else:
  *
- * 1. A stored copy is keyed by URL, plus the narrowed `X-VIP-Go-Segmentation`
- *    value when the response's `Vary` names that header. Otherwise one copy
- *    serves every reader.
+ * 1. A stored copy is keyed by URL, plus `X-VIP-Go-Segmentation` as WPVIP
+ *    derives it from the forwarded `vip-go-seg` cookie after phase 1
+ *    (observed 2026-10-27: the header the worker sets is ignored, and an
+ *    empty value is dropped), when the response's `Vary` names that
+ *    header. Otherwise one copy serves every reader.
  * 2. A response is stored only when it is a 200 to a GET, carries no
  *    `Set-Cookie`, and is not `no-store` after phase 3.
  * 3. Phase 1 runs on every request; phases 3 and 4 run on every origin
@@ -14,12 +16,12 @@
  * 4. KV is a map; a purge drops copies and keeps records.
  *
  * There is no TTL, no pass list beyond the worker's own bypass rules, and
- * no emulation of anything WPVIP has not documented. Whether the platform
- * behaves this way is the platform-question list in
- * docs/known-limitations.md; this harness states the contract, it does not
- * verify it.
+ * no emulation of anything else. Each rule was observed on WPVIP on
+ * 2026-10-27 (docs/known-limitations.md); this harness states the
+ * contract, it does not re-verify it.
  */
 
+import { getCookie } from '../lib/cookies.ts';
 import { responseTime } from '../lib/httpdate.ts';
 import { bypassReason } from '../lib/bypass.ts';
 import { crawlerVersion } from '../lib/crawlers.ts';
@@ -37,6 +39,7 @@ import {
 	OriginResponseInput,
 	RECORD_HEADER,
 	SEGMENTATION_HEADER,
+	SEGMENT_COOKIE,
 	kvKeyFor,
 	onClientRequestPure,
 	onClientResponsePure,
@@ -161,7 +164,6 @@ export class EdgeHarness {
 		input.record = this.kv.get( key ) ?? null;
 		const phase1 = onClientRequestPure( input );
 
-		toOrigin[ SEGMENTATION_HEADER ] = phase1.segmentation;
 		toOrigin[ LOOKUP_HEADER ] = phase1.lookup;
 		toOrigin[ RECORD_HEADER ] = phase1.recordKeys;
 		toOrigin[ KV_KEY_HEADER ] = key;
@@ -170,11 +172,16 @@ export class EdgeHarness {
 		} else {
 			toOrigin.cookie = phase1.cookie;
 		}
+		// The platform's own derivation from the forwarded cookie; absent
+		// when empty.
+		const keyValue = getCookie( phase1.cookie, SEGMENT_COOKIE ) ?? '';
+		if ( keyValue.length > 0 ) {
+			toOrigin[ SEGMENTATION_HEADER ] = keyValue;
+		}
 
 		// Rule 1: lookup.
 		const hit = ( this.copies.get( url ) ?? [] ).find(
-			( copy ) =>
-				! copy.varies || copy.segmentation === phase1.segmentation
+			( copy ) => ! copy.varies || copy.segmentation === keyValue
 		);
 		if ( hit ) {
 			this.stats.hits++;
@@ -199,7 +206,7 @@ export class EdgeHarness {
 			response,
 			phase1.lookup,
 			phase1.recordKeys,
-			phase1.segmentation
+			keyValue.length > 0 ? keyValue : null
 		);
 		if ( phase3.record !== null ) {
 			this.kv.set( key, phase3.record );
@@ -219,12 +226,10 @@ export class EdgeHarness {
 		if ( storable ) {
 			const kept = ( this.copies.get( url ) ?? [] ).filter(
 				( copy ) =>
-					copy.varies &&
-					varies &&
-					copy.segmentation !== phase1.segmentation
+					copy.varies && varies && copy.segmentation !== keyValue
 			);
 			kept.push( {
-				segmentation: varies ? phase1.segmentation : '',
+				segmentation: varies ? keyValue : '',
 				varies,
 				status: response.status,
 				headers: { ...response.headers },
@@ -330,6 +335,7 @@ export class EdgeHarness {
 		if ( meters.length > 0 ) {
 			const input = new ClientResponseInput();
 			input.meterHeaders = meters;
+			input.status = response.status;
 			input.userAgent = clientHeaders[ 'user-agent' ] ?? null;
 			input.cookie = clientHeaders.cookie ?? null;
 			input.method = method;

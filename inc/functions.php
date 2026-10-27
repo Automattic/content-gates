@@ -17,9 +17,9 @@ use WP_Error;
 /**
  * Assign the reader to a segment.
  *
- * Call after `init` priority 10 and before `send_headers`. Providers call
- * this on every origin request; the cookie lifetime bounds how long a lapsed
- * reader keeps the entitled view.
+ * Call after `init` priority 10 and before `send_headers`, on a request the
+ * edge forwards with the full cookie (a POST, a logged-in request, a
+ * provider endpoint). Set membership once; remove it when it lapses.
  *
  * @since 0.1.0
  *
@@ -27,7 +27,7 @@ use WP_Error;
  * @param string|null $value   Value; `1` for a boolean segment. Meter segments refuse values.
  * @return true|WP_Error `content_gates_too_late`, `content_gates_invalid_segment`,
  *                       `content_gates_inactive_segment`, `content_gates_invalid_value`,
- *                       or `content_gates_platform_unavailable`.
+ *                       `content_gates_platform_unavailable`, or `content_gates_narrowed_request`.
  */
 function assign_reader_to_segment( int|string $segment, ?string $value = null ): true|WP_Error {
 	return Plugin::instance()->membership()->assign( $segment, $value );
@@ -42,7 +42,7 @@ function assign_reader_to_segment( int|string $segment, ?string $value = null ):
  *
  * @param int|string $segment Segment key or post ID.
  * @return true|WP_Error `content_gates_too_late`, `content_gates_invalid_segment`,
- *                       or `content_gates_platform_unavailable`.
+ *                       `content_gates_platform_unavailable`, or `content_gates_narrowed_request`.
  */
 function remove_reader_from_segment( int|string $segment ): true|WP_Error {
 	return Plugin::instance()->membership()->remove( $segment );

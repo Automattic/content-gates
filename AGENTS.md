@@ -215,8 +215,8 @@ They exist so a failure is observable without re-instrumenting:
 - **Diagnostic response headers**, always on: origin's
   `X-WPVIP-Content-Gates-Declared` (what the URL may read) and the worker's
   `X-WPVIP-Content-Gates-Key` (the key the request resolved to, phase 3,
-  stored with the copy; `none`, `bypass`, or `-` when phase 1's rewrite was
-  not visible). Edge Workers have no logs; `docs/edge-worker.md` has the
+  stored with the copy; `none`, `bypass`, or `-` when phase 3 saw no
+  phase 1 marker). Edge Workers have no logs; `docs/edge-worker.md` has the
   reading table.
 - **`?content_gates_demo=1`** on any dev front-end page shows the declared
   set and the raw membership, with a link to `/segments/` (local only, never

@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace Automattic\VIP\ContentGates\Tests\Unit;
 
 use Automattic\VIP\Cache\Vary_Cache;
+use Automattic\VIP\ContentGates\Membership\Membership;
 use Automattic\VIP\ContentGates\Providers\Newspack_Bridge;
 
 /**
@@ -71,6 +72,39 @@ final class Test_Newspack_Bridge extends Content_Gates_Test_Case {
 		);
 		( new Newspack_Bridge( $this->plugin()->membership() ) )->sync();
 		$this->assertSame( '', Vary_Cache::get_groups()['subscriber'], 'A false evaluation removes membership.' );
+	}
+
+	/**
+	 * On a narrowed request the bridge does not even evaluate rules.
+	 */
+	public function test_narrowed_request_is_left_alone(): void {
+		$this->create_segment( 'Subscriber' );
+		$evaluated = false;
+		\Newspack\Access_Rules::register_rule(
+			array(
+				'id'       => 'subscription',
+				'callback' => static function () use ( &$evaluated ): bool {
+					$evaluated = true;
+					return true;
+				},
+			)
+		);
+		add_filter(
+			'content_gates_newspack_rules',
+			static fn(): array => array(
+				array(
+					'segment' => 'subscriber',
+					'rule'    => 'subscription',
+				),
+			) 
+		);
+		$_SERVER[ Membership::LOOKUP_HEADER ] = 'narrowed';
+
+		( new Newspack_Bridge( $this->plugin()->membership() ) )->sync();
+
+		unset( $_SERVER[ Membership::LOOKUP_HEADER ] );
+		$this->assertFalse( $evaluated );
+		$this->assertSame( '', Vary_Cache::get_groups()['subscriber'] ?? '' );
 	}
 
 	/**

@@ -57,6 +57,13 @@ function origin( request: OriginRequest ) {
 		headers[ 'x-wpvip-content-gates-meter' ] =
 			'metered-articles; id=123; limit=2; period=2592000';
 	}
+	if ( path === '/metered-redirect/' ) {
+		// The canonical redirect of `?p=123`: origin's headers, no content.
+		headers.location = '/metered/';
+		headers[ 'x-wpvip-content-gates-meter' ] =
+			'metered-articles; id=123; limit=2; period=2592000';
+		return { status: 301, headers, body: '' };
+	}
 	if ( path === '/metered-assign/' ) {
 		// A provider assigned membership during this metered view.
 		headers[ 'x-wpvip-content-gates-meter' ] =
@@ -320,6 +327,33 @@ test( 'metered views advance the cookie on cache hits', () => {
 			assert.equal( copy.headers[ 'set-cookie' ], undefined );
 		}
 	}
+} );
+
+test( 'a redirect that carries the meter header counts nothing', () => {
+	declaredByPath.set( '/metered-redirect/', 'metered-articles' );
+	const first = edge.request( '/metered/', { 'user-agent': CHROME } );
+	const cookie =
+		'vip-go-seg=' +
+		setCookie( first, 'vip-go-seg' ) +
+		'; vip-go-meter=' +
+		setCookie( first, 'vip-go-meter' );
+
+	const redirect = edge.request( '/metered-redirect/', {
+		'user-agent': CHROME,
+		cookie,
+	} );
+	assert.equal( redirect.status, 301 );
+	assert.deepEqual( setCookies( redirect ), [] );
+
+	// The article the redirect leads to is still the reader's first view.
+	const article = edge.request( '/metered/', {
+		'user-agent': CHROME,
+		cookie,
+	} );
+	assert.equal(
+		setCookie( article, 'vip-go-seg' ),
+		'vc-v1__metered-articles_--_last'
+	);
 } );
 
 test( 'an origin assignment on a metered miss reaches the browser once, with the meter state', () => {

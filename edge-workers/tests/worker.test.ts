@@ -80,8 +80,8 @@ test( 'phase 1 with a record narrows to the recorded keys', () => {
 	assert.equal( out.recordKeys, 'v1:subscriber' );
 	assert.equal(
 		out.cookie,
-		'other=x; vip-go-seg=vc-v1__newsletter_--_1---__subscriber_--_1',
-		'the forwarded cookie is never narrowed'
+		'other=x; vip-go-seg=vc-v1__subscriber_--_1',
+		'the forwarded cookie is narrowed too: WPVIP keys on it'
 	);
 } );
 
@@ -111,6 +111,7 @@ test( 'phase 1 with an empty record yields an empty key', () => {
 	);
 	assert.equal( out.segmentation, '' );
 	assert.equal( out.lookup, 'narrowed' );
+	assert.equal( out.cookie, '', 'no groups, so no cookie reaches origin' );
 } );
 
 test( 'phase 1 classifies a crawler and injects it into header and cookie', () => {
@@ -337,6 +338,18 @@ test( 'phase 4 does nothing without meters, for crawlers, or without a secret', 
 	);
 } );
 
+test( 'phase 4 leaves a redirect alone: it delivers nothing to count', () => {
+	const redirect = clientResponse(
+		'vip-go-seg=vc-v1__metered-articles_--_open',
+		CHROME,
+		[ METER ]
+	);
+	redirect.status = 301;
+	const out = onClientResponsePure( redirect, nodeCrypto );
+	assert.deepEqual( out.setCookies, [] );
+	assert.equal( out.skipped, 'status' );
+} );
+
 test( 'phase 4 writes both cookies and merges the state into other groups', () => {
 	const out = onClientResponsePure(
 		clientResponse( 'vip-go-seg=vc-v1__subscriber_--_1', CHROME, [
@@ -527,7 +540,15 @@ test( 'phase 3 reports the key the request resolved to', () => {
 		'vc-v1__subscriber_--_1'
 	);
 	assert.equal( resolvedKey( 'bypass', null ), 'bypass' );
-	assert.equal( resolvedKey( null, null ), '-', 'phase 1 rewrite not seen' );
+	assert.equal( resolvedKey( null, null ), '-', 'phase 1 marker not seen' );
+	assert.equal( resolvedKey( null, 'vc-v1__subscriber_--_1' ), '-' );
+	assert.equal(
+		resolvedKey( 'full', null ),
+		'none',
+		'WPVIP drops an empty header: marker present, value absent, means empty'
+	);
+	assert.equal( resolvedKey( 'narrowed', null ), 'none' );
+	assert.equal( resolvedKey( 'maybe', null ), '-' );
 	assert.equal( resolvedKey( 'full', 'not a token' ), '-' );
 
 	const input = new OriginResponseInput();

@@ -11,6 +11,7 @@ namespace Automattic\VIP\ContentGates\Tests\Unit;
 
 use Automattic\VIP\Cache\Vary_Cache;
 use Automattic\VIP\ContentGates\Headers;
+use Automattic\VIP\ContentGates\Membership\Membership;
 use WP_Error;
 
 use function Automattic\VIP\ContentGates\assign_reader_to_segment;
@@ -37,6 +38,23 @@ final class Test_Membership extends Content_Gates_Test_Case {
 		add_filter( 'content_gates_cookie_lifetime', static fn(): int => 1, 20 );
 		$this->plugin()->membership()->register_groups();
 		$this->assertSame( HOUR_IN_SECONDS, $expiry->getValue(), 'Clamped before Vary_Cache can warn.' );
+	}
+
+	/**
+	 * Writes are refused on a request the Edge Worker narrowed; a full lookup is fine.
+	 */
+	public function test_writes_are_refused_on_narrowed_requests(): void {
+		$this->create_segment( 'Subscriber' );
+		$_SERVER[ Membership::LOOKUP_HEADER ] = 'narrowed';
+
+		$result = assign_reader_to_segment( 'subscriber' );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'content_gates_narrowed_request', $result->get_error_code() );
+		$this->assertFalse( $this->plugin()->membership()->is_dirty(), 'Nothing was written.' );
+
+		$_SERVER[ Membership::LOOKUP_HEADER ] = 'full';
+		$this->assertTrue( assign_reader_to_segment( 'subscriber' ) );
+		unset( $_SERVER[ Membership::LOOKUP_HEADER ] );
 	}
 
 	/**

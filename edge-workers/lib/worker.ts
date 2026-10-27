@@ -76,8 +76,9 @@ export const METER_HEADER: string = 'x-wpvip-content-gates-meter';
 /**
  * Response header phase 3 sets with the key the request resolved to: the
  * narrowed `X-VIP-Go-Segmentation` value phase 1 built, `none` when that
- * value was empty, `bypass` when phase 1 left the request alone, and `-`
- * when phase 3 could not read phase 1's rewrite. It is stored with the
+ * value was empty (or absent next to phase 1's lookup marker, which is
+ * how WPVIP delivers an empty value), `bypass` when phase 1 left the
+ * request alone, and `-` when phase 3 saw no marker from phase 1 at all. It is stored with the
  * copy. A hit is by definition a request that resolved to the stored
  * copy's key, so the header reads the same on hits and misses. Edge
  * Workers expose no logs; with origin's declared header this is the
@@ -88,7 +89,7 @@ export const KEY_HEADER: string = 'x-wpvip-content-gates-key';
 /** `KEY_HEADER` value for an empty narrowed key: the anonymous copy. */
 export const KEY_NONE: string = 'none';
 
-/** `KEY_HEADER` value when phase 3 saw no segmentation from phase 1. */
+/** `KEY_HEADER` value when phase 3 saw no lookup marker from phase 1. */
 export const KEY_UNKNOWN: string = '-';
 
 export const LOOKUP_FULL: string = 'full';
@@ -142,7 +143,11 @@ export class ClientRequestOutput {
 	 * when the lookup was full.
 	 */
 	recordKeys: string = '';
-	/** Rewritten `Cookie` header for origin; empty means delete it. */
+	/**
+	 * Rewritten `Cookie` header for origin, with `vip-go-seg` narrowed to
+	 * `segmentation` (absent when empty); an empty string means delete the
+	 * whole header.
+	 */
 	cookie: string = '';
 }
 
@@ -176,24 +181,26 @@ export function onClientRequestPure(
 
 	// 3. Narrow when a record exists; otherwise today's full-value keying.
 	const record = decodeRecord( input.record );
+	let keyed: Groups = reader;
 	if ( record === null ) {
-		out.segmentation = serializeSegmentation( reader );
 		out.lookup = LOOKUP_FULL;
 	} else {
-		out.segmentation = serializeSegmentation(
-			narrowGroups( reader, record )
-		);
+		keyed = narrowGroups( reader, record );
 		out.lookup = LOOKUP_NARROWED;
 		out.recordKeys = encodeRecord( record );
 	}
+	out.segmentation = serializeSegmentation( keyed );
 
-	// 4. The cookie origin sees: the reader's groups plus the worker's
-	//    classification, never a browser-supplied crawler value.
-	const forwarded = serializeSegmentation( reader );
+	// 4. The cookie origin sees carries the same narrowed groups: WPVIP
+	//    derives the cache key from the forwarded cookie, not from the
+	//    header above (observed 2026-10-27). Origin reads only declared
+	//    groups, and membership writes are refused on narrowed requests,
+	//    so the narrowed cookie never reaches a browser. A browser-supplied
+	//    crawler value never reaches origin.
 	out.cookie = withCookie(
 		input.cookie,
 		SEGMENT_COOKIE,
-		forwarded.length == 0 ? null : forwarded
+		out.segmentation.length == 0 ? null : out.segmentation
 	);
 
 	return out;
@@ -231,6 +238,12 @@ export class OriginResponseOutput {
  * The `KEY_HEADER` value: the key phase 1 resolved the request to, as
  * phase 3 read it back from the origin-socket request.
  *
+ * WPVIP does not keep a header set to an empty value (observed 2026-10-27:
+ * an anonymous request reached phase 3 with the lookup marker but no
+ * segmentation header, and the cache keyed the empty set and the absent
+ * header alike). So when phase 1's lookup marker is present, a missing
+ * segmentation header means the empty key, not a lost snapshot.
+ *
  * @param lookup       Lookup marker, or null.
  * @param segmentation Narrowed segmentation value, or null.
  * @return `bypass`, `-`, `none`, or the narrowed value.
@@ -239,11 +252,16 @@ export function resolvedKey(
 	lookup: string | null,
 	segmentation: string | null
 ): string {
-	if ( lookup !== null && lookup == LOOKUP_BYPASS ) {
+	if ( lookup === null ) {
+		return KEY_UNKNOWN;
+	}
+	if ( lookup == LOOKUP_BYPASS ) {
 		return LOOKUP_BYPASS;
 	}
 	if ( segmentation === null ) {
-		return KEY_UNKNOWN;
+		return lookup == LOOKUP_FULL || lookup == LOOKUP_NARROWED
+			? KEY_NONE
+			: KEY_UNKNOWN;
 	}
 	const value = segmentation.trim();
 	if ( value.length == 0 ) {
@@ -355,6 +373,8 @@ export function onOriginResponsePure(
 export class ClientResponseInput {
 	/** Every `X-WPVIP-Content-Gates-Meter` value on the response. */
 	meterHeaders: string[] = [];
+	/** The response status. Only a 200 delivers content worth counting. */
+	status: i32 = 200;
 	/** The client's `User-Agent`, or null. */
 	userAgent: string | null = null;
 	/** The client's raw `Cookie` header, or null. */
@@ -434,8 +454,10 @@ function originsSegmentation(
  * Phase 4 decision logic: advance every announced meter and write both
  * cookies, or do nothing.
  *
- * Does nothing for crawlers (they must never carry state), when no secret
- * is configured (an unsigned cookie would be forgeable), and when the
+ * Does nothing for a response other than a 200 (a redirect carries
+ * origin's headers but delivers nothing, so there is no view to count),
+ * for crawlers (they must never carry state), when no secret is
+ * configured (an unsigned cookie would be forgeable), and when the
  * response date is unreadable (a period reset needs a clock).
  *
  * The state that decided the lookup is the request cookie's; that is what
@@ -460,6 +482,10 @@ export function onClientResponsePure(
 
 	if ( input.meterHeaders.length == 0 ) {
 		out.skipped = 'unmetered';
+		return out;
+	}
+	if ( input.status != 200 ) {
+		out.skipped = 'status';
 		return out;
 	}
 	if (

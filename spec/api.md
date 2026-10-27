@@ -18,8 +18,8 @@ An unknown reference returns `content_gates_invalid_segment` from writers. Reade
 
 | Function | Returns | When it may run |
 | --- | --- | --- |
-| `assign_reader_to_segment( int\|string $segment, ?string $value = null )` | `true\|WP_Error` | After `init` priority 10 and before `send_headers` |
-| `remove_reader_from_segment( int\|string $segment )` | `true\|WP_Error` | Same window. Allowed for inactive segments so providers can clear stale cookies |
+| `assign_reader_to_segment( int\|string $segment, ?string $value = null )` | `true\|WP_Error` | After `init` priority 10 and before `send_headers`, on a request the edge did not narrow (see the write rule below) |
+| `remove_reader_from_segment( int\|string $segment )` | `true\|WP_Error` | Same window and rule. Allowed for inactive segments so providers can clear stale cookies |
 | `declare_segment( int\|string $segment )` | `true\|WP_Error` | Before the plugin's finalize callback at the end of the `wp` action. Use the `wp` action |
 | `is_reader_in_segment( int\|string $segment, ?string $value = null )` | `bool` | After the plugin's finalize callback (`template_redirect` and later) |
 | `get_reader_segment_value( int\|string $segment )` | `?string` | After the plugin's finalize callback |
@@ -31,7 +31,8 @@ Rules that apply to every function:
 - Meter values are written only by the Edge Worker. `assign_reader_to_segment()` on a meter segment returns `content_gates_invalid_value`. See the metering section of [page-cache.md](page-cache.md).
 - A read of a segment that is not in the declared set returns `false` or `null` and raises `_doing_it_wrong()` under `WP_DEBUG`. This is the fail-closed rule from [page-cache.md](page-cache.md). It also applies to a read made before the declared set is final.
 - Inactive segments are never declared. Reads of them return `false`. Assignment to them is refused.
-- Writes are idempotent. Assigning a value the reader already holds, or removing a group the reader is not in, returns `true`, marks nothing dirty, and sends no `Set-Cookie`. Providers can therefore reassert membership on every request without making entitled responses unstorable. (Added 2026-10-23; see [decisions.md](decisions.md).)
+- Writes are idempotent. Assigning a value the reader already holds, or removing a group the reader is not in, returns `true`, marks nothing dirty, and sends no `Set-Cookie`.
+- A provider writes membership when entitlement is established or lapses, not on page views. Set once, with its `Set-Cookie`; touch again only to remove. The write must happen on a request the edge forwards with the full cookie: a POST, an authenticated or logged-in request, or a URL with no edge record yet. On a request the Edge Worker narrowed (its lookup marker reads `narrowed`), both writers return `content_gates_narrowed_request` and change nothing, because `Vary_Cache` would serialize the narrowed set back to the browser and drop the reader's other groups. (Decided 2026-10-27, replacing "reassert on every request"; see [decisions.md](decisions.md).)
 - Removing the reader's last group expires the segmentation cookie (`vip-go-seg`, or `vip-go-auth` in encrypted mode) with the path and domain `Vary_Cache` used to set it. Upstream `Vary_Cache` skips the write when every group is empty, which would leave the reader a member on the next request. The plugin corrects this on `vip_vary_cache_did_send_headers` without editing `Vary_Cache`.
 - Membership is parsed from the cookie by `Vary_Cache` at `init` priority 10. Nothing in this API works before that.
 - All membership reads go through this API. A direct call to `Vary_Cache::is_user_in_group()`, `Vary_Cache::is_user_in_group_segment()`, or `Vary_Cache::get_groups()` outside the plugin is a defect, because it bypasses the declared-set check. A project PHPCS sniff that flags those calls is planned, not written (see [known-limitations.md](../docs/known-limitations.md)).
@@ -45,6 +46,7 @@ Rules that apply to every function:
 | `content_gates_inactive_segment` | assign, declare | The segment is inactive |
 | `content_gates_invalid_value` | assign | The value does not match the allowed pattern, or the segment is a meter, whose values only the edge writes |
 | `content_gates_platform_unavailable` | assign, remove | `Vary_Cache` is not loaded outside a `local` environment |
+| `content_gates_narrowed_request` | assign, remove | The Edge Worker narrowed this request's cookie; membership can only change on a request that carries the full cookie |
 
 ## Hooks
 
@@ -107,7 +109,7 @@ Edge Workers expose no logs, so the edge reports on the response itself. One hea
 | --- | --- | --- |
 | `X-WPVIP-Content-Gates-Key` | worker, phase 3, before the store | The key the request resolved to: the narrowed `X-VIP-Go-Segmentation` value, `none` when empty (the anonymous copy), `bypass` when phase 1 left the request alone, `-` when phase 3 could not read phase 1's rewrite. Stored with the copy; a hit resolved to the stored key by definition |
 
-Reading it with the declared header: a declared set with key `-` means phase 1's rewrite did not reach phase 3 (open platform question 8, or phase 1 did not run, question 1). A segmented response (`Vary` names the segmentation header) with no declared header is an origin fault; phase 3 marks both cases `no-store`.
+Reading it with the declared header: a declared set with key `-` means phase 3 saw no phase 1 marker (phase 1 did not run, or the request snapshot lost it). A segmented response (`Vary` names the segmentation header) with no declared header is an origin fault; phase 3 marks both cases `no-store`.
 
 The worker sends one request header to origin, `X-WPVIP-Content-Gates-Edge`, carrying the version of `config/crawlers.json` it was built with. The plugin compares it with its own copy and shows an admin notice on a mismatch.
 

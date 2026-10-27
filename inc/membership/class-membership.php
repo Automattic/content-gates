@@ -37,14 +37,23 @@ use WP_Error;
  *   sends `Vary` and the cookie when the declared set is sent.
  *
  * Writes are idempotent: assigning a value the reader already has, or
- * removing a group they are not in, changes nothing and sends no cookie,
- * so a provider that reasserts membership on every request leaves the
- * response storable. Removing the reader's last group expires the cookie,
- * which upstream `Vary_Cache` does not do by itself.
+ * removing a group they are not in, changes nothing and sends no cookie.
+ * Writes are refused on a request the Edge Worker narrowed: the cookie
+ * origin holds is only this URL's recorded groups, and `Vary_Cache` would
+ * write that narrowed set back to the browser, dropping the reader's other
+ * groups. Providers write from POSTs, logged-in requests, or their own
+ * endpoints (spec/api.md). Removing the reader's last group expires the
+ * cookie, which upstream `Vary_Cache` does not do by itself.
  *
  * @since 0.1.0
  */
 final class Membership {
+
+	/**
+	 * Request header the Edge Worker sets with its lookup marker; `narrowed`
+	 * means the forwarded cookie holds only this URL's recorded groups.
+	 */
+	public const LOOKUP_HEADER = 'HTTP_X_WPVIP_CONTENT_GATES_LOOKUP';
 
 	public const METER_OPEN = 'open';
 	public const METER_LAST = 'last';
@@ -115,9 +124,9 @@ final class Membership {
 		/**
 		 * Filters the segmentation cookie lifetime in seconds.
 		 *
-		 * Providers re-assert membership on every origin request, so the
-		 * lifetime bounds how long a lapsed reader keeps the entitled view.
-		 * `Vary_Cache` refuses values under one hour.
+		 * Membership is set once and removed explicitly, so the lifetime is
+		 * the bound on a lapsed entitlement and the interval at which a valid
+		 * reader is re-set. `Vary_Cache` refuses values under one hour.
 		 *
 		 * @since 0.1.0
 		 *
@@ -312,8 +321,24 @@ final class Membership {
 		if ( $this->writes_closed ) {
 			return new WP_Error( 'content_gates_too_late', __( 'Membership can only change after init priority 10 and before send_headers.', 'content-gates' ) );
 		}
+		if ( self::request_is_narrowed() ) {
+			return new WP_Error( 'content_gates_narrowed_request', __( 'The edge narrowed this request\'s cookie. Change membership from a POST, a logged-in request, or a provider endpoint instead.', 'content-gates' ) );
+		}
 
 		return true;
+	}
+
+	/**
+	 * Whether the Edge Worker forwarded a narrowed cookie for this request.
+	 *
+	 * @since 0.1.0
+	 */
+	public static function request_is_narrowed(): bool {
+		if ( ! isset( $_SERVER[ self::LOOKUP_HEADER ] ) ) {
+			return false;
+		}
+
+		return 'narrowed' === sanitize_text_field( wp_unslash( $_SERVER[ self::LOOKUP_HEADER ] ) );
 	}
 
 	/**

@@ -34,7 +34,7 @@ Consulted-set narrowing becomes declared-set narrowing. It is implemented with a
 
 ### Principle
 
-The cache keys on URL plus the full value of the `X-VIP-Go-Segmentation` request header. The worker presents a narrowed value for that header: only the reader's values for the segments this URL may read. The reader's browser cookie is never narrowed. Origin keeps sending `Vary: X-VIP-Go-Segmentation`, so nothing in `Vary_Cache` needs to change.
+The cache keys on URL plus `X-VIP-Go-Segmentation`, which WPVIP derives from the `vip-go-seg` cookie the edge forwards to origin. The worker narrows that forwarded cookie to the reader's values for the segments this URL may read; the reader's browser cookie is never changed. Origin keeps sending `Vary: X-VIP-Go-Segmentation`, so nothing in `Vary_Cache` needs to change.
 
 The origin must know the segments a response will read before it sends headers. That is the declared set:
 
@@ -186,16 +186,16 @@ Segments `subscriber`, `newsletter`, and `donor`. The reader is in `subscriber` 
 
 **Phase 1, client request, before lookup.** The worker reads the cookie, giving `{newsletter=1, subscriber=1}`, adds any crawler value it classifies for this request, and reads the KV record for the URL. Meter states are already cookie values and need no work here. Requests that can never be stored under a segmented key (non-GET, authenticated, logged-in sessions, static files, admin paths) are left untouched before the KV read; the worker marks them `bypass`, phase 3 never stores them, and phase 4 does not meter them. (Added 2026-10-23.)
 
-- No record: pass the full value through. This is today's full-cookie keying and is safe.
-- Record `[subscriber]`: rewrite the header to the reader's values for those keys only, in `Vary_Cache` serialization.
+- No record: forward the cookie as the reader sent it (minus any crawler value). This is today's full-cookie keying and is safe.
+- Record `[subscriber]`: forward `vip-go-seg` with the reader's values for those keys only, in `Vary_Cache` serialization. WPVIP derives the key's `X-VIP-Go-Segmentation` from the forwarded cookie and ignores a header the worker sets (observed 2026-10-27), so the cookie is what narrows. The browser's own cookie is never changed by this.
 
 ```
 GET /article-1/
-Cookie: vip-go-seg=vc-v1__newsletter_--_1---__subscriber_--_1
-X-VIP-Go-Segmentation: vc-v1__subscriber_--_1
+Cookie (from the browser): vip-go-seg=vc-v1__newsletter_--_1---__subscriber_--_1
+Cookie (forwarded to origin): vip-go-seg=vc-v1__subscriber_--_1
 ```
 
-The cache key is `/article-1/` plus `vc-v1__subscriber_--_1`. A subscriber who is not on the newsletter shares the copy. A reader in none of the recorded segments produces an empty header and shares the anonymous copy.
+The cache key is `/article-1/` plus `vc-v1__subscriber_--_1`. A subscriber who is not on the newsletter shares the copy. A reader in none of the recorded segments is forwarded without the cookie and shares the anonymous copy. Origin reads only declared groups, so a declared group a stale record left out reads false there; phase 3 then refuses to store that response and widens the record. Membership writes are refused on narrowed requests (see [api.md](api.md)), so `Vary_Cache` never serializes a narrowed set back to a browser.
 
 **Phase 3, origin response, on a miss.** The worker reads `X-WPVIP-Content-Gates-Declared` and, in this order:
 
@@ -212,7 +212,7 @@ A subscriber's render of `/article-1/` reads only `subscriber`. A non-subscriber
 
 | Event at origin | What the edge does | Window |
 | --- | --- | --- |
-| Editor adds a segment to a Group and saves | Post save purges every stored variant of the URL (confirmed by VIP, 2026-10-21). The next miss declares a wider set; the worker widens the record and does not store that one response. | One origin round trip per edge location |
+| Editor adds a segment to a Group and saves | Post save purges every stored variant of the URL (observed 2026-10-27). The next miss declares a wider set; the worker widens the record and does not store that one response. | One origin round trip per edge location, plus a pass window under a minute for every variant of the URL after the refused store (observed 2026-10-27) |
 | Editor removes a segment from a Group | The next miss declares a narrower set; the record shrinks. Old copies were purged on save. | One origin round trip |
 | Segment deactivated, reactivated, or reconfigured in the admin | Global invalidation purges all URLs. Records are rebuilt on the next miss per URL. | One origin round trip per URL |
 | Segment created or renamed | No purge. A new key is in no cookie or stored set; keys are immutable, so a rename changes no cached byte. | None |
@@ -221,7 +221,7 @@ A subscriber's render of `/article-1/` reads only `subscriber`. A non-subscriber
 
 No edge-side TTL is needed for correctness or responsiveness. If VIP's KV requires one, it must be long and is a storage detail.
 
-Edge KV is not durable. A record can be evicted at any time. That is safe: a missing record means the lookup uses the full cookie value, which is today's keying, and the next miss relearns the record from the declared header. The cost of an eviction is one extra miss per URL per edge location, not a leak. The frequency of eviction decides how much narrowing is lost in practice and is an open question for VIP.
+Edge KV is not durable. A record can be evicted at any time. That is safe: a missing record means the lookup uses the full cookie value, which is today's keying, and the next miss relearns the record from the declared header. The cost of an eviction is one extra miss per URL per edge location, not a leak. Writes are visible on every edge location within a second (observed 2026-10-27). The frequency of eviction decides how much narrowing is lost in practice and is an open question for VIP.
 
 ### Variant bound
 
@@ -241,9 +241,7 @@ In `vip-go-auth` mode the worker must read the decrypted groups and rewrite `X-V
 
 ### Platform questions this design depends on
 
-[docs/known-limitations.md](../docs/known-limitations.md) keeps the one list of platform questions, numbered, with what each one costs if the answer is no. Questions 1 to 6 there are the narrowing design's: the key rewrite, `no-store` from phase 3, KV behavior, origin writes to KV, encrypted mode, and the variant cap.
-
-These questions do not block development but must be answered once a prototype is deployed to WPVIP.
+[docs/known-limitations.md](../docs/known-limitations.md) keeps the one list of open platform questions, numbered. The narrowing design's are questions 1 to 4: KV eviction rate, origin writes to KV, encrypted mode, and the variant cap. The rest of what the design assumed (keying on the forwarded cookie, `no-store` from phase 3, KV visibility, the request snapshot, purges) was observed on WPVIP on 2026-10-27 and is stated as fact where it applies above.
 
 ## Anonymous metering
 
@@ -310,6 +308,8 @@ Reader opens `/article-7/`, post ID 123, gated on "subscriber, metered-articles"
 4. Computes the next state. Remaining is one, so the state is `last`.
 5. Writes both cookies: the signed `vip-go-meter`, and `vip-go-seg` with `metered-articles_--_last` merged into the reader's other groups in `Vary_Cache` serialization. The other groups come from origin's `vip-go-seg` `Set-Cookie` on this response when there is one (a field that expires the cookie means no groups), and from the request cookie otherwise, so a provider's assignment or removal on a metered miss is kept rather than overwritten with the request's stale membership. The worker replaces origin's `vip-go-seg` field so that exactly one reaches the browser, keeping origin's cookie attributes when origin supplied them. Other response cookies are untouched. (Precedence added 2026-10-23.)
 
+The worker meters only a `200` response. A redirect, such as the canonical redirect from `?p=123` to the permalink, or an error carries origin's headers but delivers nothing, so it neither counts nor writes cookies. Without this rule the redirect counted a view and could move a reader from `last` to `wall` before the article arrived (observed 2026-10-27; added the same day).
+
 The reader's next metered view is keyed on `last`, is counted as the fifth, and leaves them at `wall`. At `wall` the Group is withheld, views are not counted, and the state stays `wall` until the period resets.
 
 **First visit.** A reader with no cookie has no meter value, so the Group is withheld and the response is the anonymous copy. The worker writes a fresh record with state `open`. The next metered view delivers content. This is the decided first-visit trade-off: the first free article needs one round trip, so a client that refuses cookies cannot obtain free articles by refusing them.
@@ -335,7 +335,7 @@ Edge KV is not durable, so it cannot hold the count. Origin cannot hold it becau
 
 ### Platform questions
 
-Questions 7, 10, and 11 in [docs/known-limitations.md](../docs/known-limitations.md): the signing secret and JA3/JA4, `Date` and `Age` on hits, and whether `Vary_Cache` re-serializes unregistered groups on a miss.
+Questions 5 and 6 in [docs/known-limitations.md](../docs/known-limitations.md): JA3/JA4 for cookie binding, and whether `Vary_Cache` re-serializes unregistered groups on a miss. The signing secret is settled: the worker reads it from an application environment variable through `getenv()` (observed 2026-10-27). Metering was observed live the same day on a post gated on "subscribers, test-meter" with limit 3: a first visit got the gate and a fresh signed record at `open`; the next view delivered the content and counted it once, on misses and on hits alike; a repeat view of the same post did not count again; a forged `open` state without the signed cookie, and an edited signed cookie, both started a fresh record, which is the first-visit trade-off and no better than deleting the cookie. The `last` and `wall` transitions need three metered posts and are covered by the sequence tests until the test site has them.
 
 ## Crawler classification
 
@@ -371,10 +371,10 @@ Keys follow the normal segment key rules. Patterns are case-insensitive substrin
 
 Googlebot requests `/article-1/`, gated on "subscriber, crawlers-search".
 
-**Phase 1.** The worker first removes every crawler group from the groups it parsed from the incoming cookie, so a browser that sends `crawlers-search_--_1` in `vip-go-seg` gains nothing. Only the worker's own classification can set a crawler value. The user agent matches `crawlers-search`. The request has no cookie, so the reader's groups are `{crawlers-search=1}`. The KV record for the URL is `[crawlers-search, subscriber]`, so the narrowed header is `vc-v1__crawlers-search_--_1`. The worker also sends its configuration version to origin on a miss:
+**Phase 1.** The worker first removes every crawler group from the groups it parsed from the incoming cookie, so a browser that sends `crawlers-search_--_1` in `vip-go-seg` gains nothing. Only the worker's own classification can set a crawler value. The user agent matches `crawlers-search`. The request has no cookie, so the reader's groups are `{crawlers-search=1}`. The KV record for the URL is `[crawlers-search, subscriber]`, so the cookie forwarded to origin is `vip-go-seg=vc-v1__crawlers-search_--_1`. The worker also sends its configuration version to origin on a miss:
 
 ```
-X-VIP-Go-Segmentation: vc-v1__crawlers-search_--_1
+Cookie: vip-go-seg=vc-v1__crawlers-search_--_1
 X-WPVIP-Content-Gates-Edge: 3
 ```
 
@@ -416,5 +416,5 @@ To make skew visible, the worker sends its configuration version in `X-WPVIP-Con
 
 ### Platform questions
 
-Questions 1 and 12 in [docs/known-limitations.md](../docs/known-limitations.md): the header and cookie rewrite the design depends on, and verified-bot data at the edge.
+Question 7 in [docs/known-limitations.md](../docs/known-limitations.md): verified-bot data at the edge.
 

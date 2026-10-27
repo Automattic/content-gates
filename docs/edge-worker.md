@@ -55,12 +55,13 @@ Browser                      Edge (worker + cache)                       Origin
   |-------------------------------->|                                       |
   |                 [phase 1] parse cookie, strip crawler groups,           |
   |                           classify UA, read KV record,                  |
-  |                           narrow X-VIP-Go-Segmentation,                 |
-  |                           rewrite Cookie, set marker headers            |
+  |                           narrow vip-go-seg in the forwarded Cookie,    |
+  |                           set marker headers                            |
   |                                 |                                       |
-  |                       cache lookup: URL + narrowed value                |
+  |                       cache lookup: URL + X-VIP-Go-Segmentation,        |
+  |                       which WPVIP derives from the forwarded cookie     |
   |                                 |-- miss ------------------------------>|
-  |                                 |   X-VIP-Go-Segmentation: narrowed     |
+  |                                 |   Cookie: vip-go-seg=<narrowed>       |
   |                                 |   X-WPVIP-Content-Gates-Edge: 1       |
   |                                 |<--------------------------------------|
   |                                 |   Vary: X-VIP-Go-Segmentation         |
@@ -99,17 +100,22 @@ worker instead (`lib/bypass.ts`):
    (case-insensitive substring) and add `<key>=1` for each match.
 3. Read the KV record for this URL (`cg:` + first 32 hex characters of
    `sha256(path + query)`).
-4. Set `X-VIP-Go-Segmentation`:
+4. Compute the narrowed segmentation:
    - **No record:** the full serialization of the reader's groups. This is
      today's keying and is always safe.
    - **Record present:** only the reader's values for the recorded groups,
-     in `Vary_Cache` format. Empty string when none. An empty record
-     (`v1:`, a page that declares nothing) yields one copy for everyone.
+     in `Vary_Cache` format; empty when none. An empty record (`v1:`, a
+     page that declares nothing) yields one copy for everyone.
 5. Set `X-WPVIP-Content-Gates-Edge` to the crawlers.json version, so the
    plugin can show a notice on version skew.
 6. Rewrite the forwarded `Cookie` header so `vip-go-seg` holds the
-   reader's non-crawler groups plus the worker's own classification. The
-   browser cookie itself is never narrowed.
+   narrowed segmentation (with the worker's own crawler classification and
+   never a browser-supplied crawler value), or no `vip-go-seg` at all when
+   it is empty. WPVIP derives the cache key's `X-VIP-Go-Segmentation` from
+   this forwarded cookie and ignores the header the worker sets (observed
+   2026-10-27), so the cookie is what narrows the key. The worker still
+   sets the header for a platform that honors it. The browser's cookie
+   is never changed.
 7. Set marker headers for phase 3 (see below).
 
 ### Phase 3: `onOriginResponse` (cache miss, after origin answers)
@@ -145,8 +151,10 @@ a gated article cacheable at all.
 ### Phase 4: `onClientResponse` (every delivery, hit or miss)
 
 Only acts when the response carries one or more
-`X-WPVIP-Content-Gates-Meter` headers, the client is not a crawler, the
-secret is configured, and the response `Date` is readable.
+`X-WPVIP-Content-Gates-Meter` headers, the response is a 200 (a redirect
+carries origin's headers but delivers nothing to count), the client is
+not a crawler, the secret is configured, and the response `Date` is
+readable.
 
 1. Verify `vip-go-meter`. Missing, foreign, or badly signed -> fresh
    record with count zero.
@@ -198,7 +206,7 @@ gated.
 | Header | Who | Value |
 | --- | --- | --- |
 | `X-WPVIP-Content-Gates-Declared` | origin | The groups this URL may read, sorted |
-| `X-WPVIP-Content-Gates-Key` | phase 3, before the store | The key the request resolved to: the narrowed `X-VIP-Go-Segmentation` value, `none` for the anonymous copy, `bypass` when phase 1 left the request alone, `-` when phase 3 could not read phase 1's rewrite |
+| `X-WPVIP-Content-Gates-Key` | phase 3, before the store | The key the request resolved to: the narrowed `X-VIP-Go-Segmentation` value, `none` for the anonymous copy, `bypass` when phase 1 left the request alone, `-` when phase 3 saw no phase 1 marker |
 
 The key header is stored with the copy. A hit is by definition a request
 that resolved to the stored copy's key, so the header is correct on hits
@@ -213,7 +221,7 @@ cookie next to it:
 | `1-subscribers, …` | `none` | Anonymous copy. The reader held none of the declared groups, or the record narrowed them all away |
 | `1-subscribers, …` | `vc-v1__1-subscribers_--_1` | The subscriber copy |
 | `1-subscribers, …` | `vc-v1__1-subscribers_--_1---__newsletter_--_1` | Narrowing failed to drop `newsletter`: no record yet (first request since purge) or a stale one |
-| present | `-` | Phase 3 ran but saw no segmentation from phase 1: phase 1 did not run, or `resp.request` does not carry its rewrite (platform question 8 in [known-limitations.md](known-limitations.md)). Phase 3 marks the response `no-store` |
+| present | `-` | Phase 3 ran but saw no lookup marker from phase 1: phase 1 did not run, or `resp.request` does not carry its rewrite. Phase 3 marks the response `no-store` |
 | present, `Vary` set | header absent | The worker did not run phase 3 on this response |
 | absent, `Vary` set | any | Origin fault: a segmented response with no declared set. Phase 3 marks it `no-store` |
 
@@ -278,17 +286,28 @@ than deleting it.
 Phase 4 reads `CONTENT_GATES_METER_SECRET` with `getenv()`. When it is
 unset or empty the worker does **no metering at all**: it writes no
 cookies, so readers stay at the no-cookie state and metered Groups stay
-withheld. Set it at deploy time as a worker environment variable; never
-compile it in or commit it. The test harness passes a fixed test secret.
+withheld. Set it as an application environment variable:
+
+```bash
+vip @<app>.<env> config envvar set CONTENT_GATES_METER_SECRET
+```
+
+Workers read application variables through `getenv()` (observed
+2026-10-27; a worker that ran before the variable existed read null, so
+set the variable first). The SDK reads variables at worker startup, so
+redeploy the worker if the variable was set after the deploy. Never
+compile the secret in or commit it. The test harness passes a fixed test
+secret.
 
 ## Time without a clock
 
 AssemblyScript's `Date.now()` compiles to an `env.Date.now` import that
 the VIP host is not documented to provide; a missing import would stop the
 worker from loading. The worker therefore reads time from the response's
-`Date` header plus `Age`. Precision is one second on a miss and within the
-cache TTL on a hit, which is fine for periods measured in days. If the
-`Date` header is unreadable, phase 4 does nothing for that response.
+`Date` header plus `Age`. On WPVIP `Date` is refreshed to delivery time on
+hits and `Age` is absent (observed 2026-10-27), so precision is one second
+on hits and misses alike. If the `Date` header is unreadable, phase 4 does
+nothing for that response.
 
 ## Building
 
@@ -347,17 +366,11 @@ turns a worker fault into a failed request instead. Confirm on the
 platform whether the policy is per phase or per worker before relying on
 this for production.
 
-**Still unverified:** how the `CONTENT_GATES_METER_SECRET` environment
-variable is set for a worker. The CLI exposes no flag for it; until it is
-set, the worker does no metering (see "The secret"). Two platform
-requirements to confirm on the first deploy:
-
-- Phase 3 uses `resp.request`, which the SDK README says requires a runtime
-  with `request.*` host-function support. The diagnostic headers show the
-  answer on the first response (see "Diagnostic headers").
-- The worker must be allowed to rewrite `X-VIP-Go-Segmentation` and the
-  `Cookie` header, and the cache must key on the rewritten value
-  (spec/page-cache.md, platform question 1).
+**Confirmed on the first deploys (2026-10-27):** `resp.request`, which
+phase 3 reads, is populated on the deployed runtime; the cache keys on
+the cookie the worker forwards, not on a header it sets, which is why
+phase 1 narrows the cookie; and `getenv()` reads application environment
+variables, so the secret needs no CLI flag (see "The secret").
 
 ## Testing the contract locally
 
@@ -381,14 +394,16 @@ each stating what it assumes:
    `tests/sequence.test.ts` runs the learn, narrow, widen, shrink, crawler,
    meter-on-hit, and bypass scenarios through it against a fake origin.
 
-Whether WPVIP's cache follows the harness's rules is not something a
-local test can show. Each rule is a platform question in
-[known-limitations.md](known-limitations.md); the live validation
-scenarios answer them with the diagnostic headers above.
+Each of the harness's rules was observed on WPVIP on 2026-10-27 through
+the diagnostic headers above: keying on the forwarded cookie, `no-store`
+honored, KV visible across locations, phases on passes. A local test
+cannot show that they still hold after a platform change; the live
+validation scenarios are the way to re-check.
 
 ## Open platform questions
 
 [known-limitations.md](known-limitations.md) keeps the one numbered list;
-none block local work. The ones this worker's code depends on most are
-the key rewrite (1), `no-store` from phase 3 (2), `resp.request` (8), and
-`Date` or `Age` on hits (10).
+none block local work, and none blocks metering any more. The one this
+worker's code still leans on is 6: whether `Vary_Cache` re-serializes
+groups it did not register, which decides the groups the next meter
+state is merged into on a miss.

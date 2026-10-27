@@ -12,7 +12,7 @@ WPVIP's page cache stores one copy of a URL per distinct value of the
 every URL gets up to 2^N copies for N segments, including pages that read
 no segment at all. This plugin makes origin say, before any output, exactly
 which segments a URL may read (**the declared set**), and an Edge Worker
-narrows the header to the reader's values for those segments only. A page
+narrows the cookie it forwards to the reader's values for those segments only. A page
 that reads nothing has one copy. A page gated on `subscriber` has two,
 whatever else the reader belongs to.
 
@@ -129,12 +129,13 @@ Reader                         Edge Worker                        Origin (WordPr
   |  GET /article  Cookie: vip-go-seg=vc-v1__newsletter_--_1---__subscriber_--_1
   |----------------------------->|
   |                              |  KV record for /article: [subscriber]
-  |                              |  narrow header to vc-v1__subscriber_--_1; forward cookie, edge version
+  |                              |  forward Cookie: vip-go-seg=vc-v1__subscriber_--_1 (narrowed to the record), edge version
+  |                              |  cache key: /article + X-VIP-Go-Segmentation derived from that cookie
   |                              |---------------------------------->|
   |                              |                                   | init 0: cg_segment post type
   |                              |                                   | init 5: every segment registered as a group
   |                              |                                   | init 10: Vary_Cache parses the cookie
-  |                              |                                   | init 20: provider assigns/removes (optional)
+  |                              |                                   | init 20: provider writes are refused (request narrowed)
   |                              |                                   | send_headers: writes close; Vary + cookie sent
   |                              |                                   | wp MAX: declared set from post meta; header sent
   |                              |                                   | template: pre_render_block withholds Groups the reader lacks
@@ -147,8 +148,8 @@ Reader                         Edge Worker                        Origin (WordPr
 
 ### Page request, warm (edge HIT)
 
-No PHP runs. The worker narrows the header the same way and the cache
-returns the stored copy for that key. A newsletter-only reader produces the
+No PHP runs. The worker narrows the forwarded cookie the same way and the
+cache returns the stored copy for that key. A newsletter-only reader produces the
 empty key and shares the anonymous copy. For metered URLs the worker still
 runs phase 4 on the hit: it counts the view and rewrites the meter cookies.
 
@@ -175,6 +176,7 @@ there instead.
 
 ```
 POST /segments/  content_gates_segments[]=subscriber   (any form; examples/segment-provider is one)
+  edge: a POST is bypassed, so origin receives the full cookie and the write is allowed
   init 20: provider calls assign_reader_to_segment( 'subscriber' )   -> Vary_Cache::set_group_for_user
   send_headers MAX: Vary_Cache writes Set-Cookie: vip-go-seg=vc-v1__subscriber_--_1
   vip_vary_cache_did_send_headers: provider redirects (303) to the same URL

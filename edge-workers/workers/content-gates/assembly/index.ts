@@ -201,6 +201,7 @@ onClientResponse( ( resp: Response ): void => {
 
 	const input = new ClientResponseInput();
 	input.meterHeaders = meters;
+	input.status = resp.status;
 	input.userAgent = snapshot.headers.get( 'user-agent' );
 	input.cookie = snapshot.headers.get( 'cookie' );
 	input.method = snapshot.method;
