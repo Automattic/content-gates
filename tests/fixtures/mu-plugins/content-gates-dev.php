@@ -59,6 +59,12 @@ function edge_sim_url(): string {
 		return (string) constant( 'CONTENT_GATES_DEV_EDGE_URL' );
 	}
 
+	// The e2e purge-bridge spec points the site at its in-process simulator.
+	$option = get_option( 'content_gates_dev_edge_url' );
+	if ( is_string( $option ) && '' !== $option ) {
+		return $option;
+	}
+
 	return 'http://host.docker.internal:8890';
 }
 

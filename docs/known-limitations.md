@@ -77,7 +77,13 @@ point here by number.
   but the 5-percentage-point target needs the VIP measurement the spec
   describes.
 - **Multisite** is implemented (group names are `{blog_id}-{key}`) but the
-  PHPUnit suite runs single-site only.
+  PHPUnit suite runs single-site only, so the prefix has no test.
+- **Fail-closed without `Vary_Cache`** (`content_gates_platform_unavailable`)
+  has no test: every suite runs with `WP_ENVIRONMENT_TYPE=local`, where the
+  bundled copy loads.
+- **Cookie expiry at the browser.** The lifetime filter and the clamp are
+  tested; that a browser drops the cookie after `Max-Age` is browser
+  behavior and is not simulated.
 - **Rich Results Test.** The JSON-LD follows Google's paywall schema; it has
   not been submitted to the test, which needs a public URL.
 
