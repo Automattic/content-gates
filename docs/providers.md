@@ -35,10 +35,11 @@ inside the write window.
 
 ## A minimal provider
 
-The local fixture `tests/fixtures/mu-plugins/content-gates-dev.php` is a
-complete example of both paths (form POST with redirect, and a REST route).
-It grants anyone who asks, so it loads only when `WP_ENVIRONMENT_TYPE` is
-`local`.
+`examples/segment-provider/` is the smallest complete provider: a form POST
+on `init` 20, the redirect once the cookie is written, and a declaration on
+`wp` so the page can read what it shows. It grants anyone who asks, so it is
+never deployed. The local fixture `tests/fixtures/mu-plugins/content-gates-dev.php`
+shows the REST path; its demo box is a diagnostic, not provider code.
 
 ```php
 add_action( 'init', function (): void {

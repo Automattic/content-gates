@@ -35,9 +35,11 @@ Join and leave segments through the demo provider, which stands in for a
 real entitlement provider and only loads where `WP_ENVIRONMENT_TYPE` is
 `local`:
 
-- **In a browser:** open any front-end page with `?content_gates_demo=1`. A
-  box in the corner shows the declared set and a Join/Leave button per
-  segment. Responses with the box are never cached.
+- **In a browser:** open `/segments/`, tick segments, save. This is the
+  example provider in `examples/segment-provider/`. Any front-end page with
+  `?content_gates_demo=1` shows the declared set and the raw membership in a
+  corner box, with a link to `/segments/`; responses with the box are never
+  cached.
 - **With curl, REST path:**
 
   ```bash
@@ -48,12 +50,8 @@ real entitlement provider and only loads where `WP_ENVIRONMENT_TYPE` is
   curl -s        http://localhost:8890/gated-article/ | grep -c SUBSCRIBER-ONLY   # 0
   ```
 
-- **With curl, form path (post-redirect-get):**
-
-  ```bash
-  curl -s -c jar -D - -o /dev/null -d content_gates_dev_assign=subscriber http://localhost:8890/gated-article/
-  ```
-
+- **With curl, form path (post-redirect-get):** the example provider's
+  README has the recipe (fetch the nonce from `/segments/`, POST it back).
 - **Through the example provider:** open `/segments/` (or
   `/?content_gates_provider=1`). The page lists every active reader segment
   with a checkbox; save, and the browser carries the membership. It is the

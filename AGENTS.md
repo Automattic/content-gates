@@ -114,9 +114,9 @@ npm run setup             # build the editor script, start the dev site, seed de
 npm run edge:sim          # optional: edge simulator on :8890 in front of the dev site
 ```
 
-`docs/local-development.md` has the demo flows (join/leave segments with
-curl or the footer box, crawler and meter walkthroughs, what each response
-header means).
+`docs/local-development.md` has the demo flows (join/leave segments at
+`/segments/` or with curl, crawler and meter walkthroughs, what each
+response header means).
 
 ## Environment
 
@@ -218,7 +218,8 @@ They exist so a failure is observable without re-instrumenting:
   not visible). Edge Workers have no logs; `docs/edge-worker.md` has the
   reading table.
 - **`?content_gates_demo=1`** on any dev front-end page shows the declared
-  set and Join/Leave buttons per segment (local only, never cached).
+  set and the raw membership, with a link to `/segments/` (local only, never
+  cached).
 - **`wp content-gates list`** and **`wp content-gates declared <id>`** show
   the segment table and a post's stored declared set from the shell.
 

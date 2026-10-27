@@ -79,24 +79,6 @@ test.describe( 'gating at origin', () => {
 		await ctx.dispose();
 	} );
 
-	test( 'the POST-redirect-GET flow lands on a GET that carries the cookie', async ( {
-		baseURL,
-	} ) => {
-		const ctx = await anonymous( baseURL! );
-		const post = await ctx.post( SEED.gatedArticle, {
-			form: { content_gates_dev_assign: 'subscriber' },
-		} );
-		expect( post.status() ).toBe( 303 );
-		expect( post.headers().location ).toContain( 'content_gates_dev=ok' );
-		expect( segFromSetCookie( setCookies( post.headersArray() ) ) ).toBe(
-			'vc-v1__subscriber_--_1'
-		);
-
-		const follow = await ctx.get( post.headers().location );
-		expect( await follow.text() ).toContain( SEED.subscriberOnly );
-		await ctx.dispose();
-	} );
-
 	test( 'an unknown segment is refused', async ( { baseURL } ) => {
 		const ctx = await anonymous( baseURL! );
 		const join = await ctx.post(

@@ -140,7 +140,7 @@ there instead.
 ### Membership change (provider)
 
 ```
-POST /article  content_gates_dev_assign=subscriber      (any form; the fixture is an example)
+POST /segments/  content_gates_segments[]=subscriber   (any form; examples/segment-provider is one)
   init 20: provider calls assign_reader_to_segment( 'subscriber' )   -> Vary_Cache::set_group_for_user
   send_headers MAX: Vary_Cache writes Set-Cookie: vip-go-seg=vc-v1__subscriber_--_1
   vip_vary_cache_did_send_headers: provider redirects (303) to the same URL
