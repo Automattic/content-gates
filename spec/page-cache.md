@@ -241,12 +241,7 @@ In `vip-go-auth` mode the worker must read the decrypted groups and rewrite `X-V
 
 ### Platform questions this design depends on
 
-1. Can a phase 1 worker rewrite `X-VIP-Go-Segmentation` (or the cookie the edge derives it from), and does the cache then key on the rewritten value?
-2. Can a phase 3 worker add `Cache-Control: no-store` to an origin response so the cache does not store it?
-3. What are KV read latency in phase 1, write visibility across edge locations, and the typical eviction rate? KV is known to be non-durable.
-4. Can origin write to edge KV, so the record is pushed at save time?
-5. Can a worker read and rewrite decrypted groups in encrypted mode?
-6. What is the cap on stored variants per URL?
+[docs/known-limitations.md](../docs/known-limitations.md) keeps the one list of platform questions, numbered, with what each one costs if the answer is no. Questions 1 to 6 there are the narrowing design's: the key rewrite, `no-store` from phase 3, KV behavior, origin writes to KV, encrypted mode, and the variant cap.
 
 These questions do not block development but must be answered once a prototype is deployed to WPVIP.
 
@@ -340,9 +335,7 @@ Edge KV is not durable, so it cannot hold the count. Origin cannot hold it becau
 
 ### Platform questions
 
-1. Can the worker hold a signing secret, for example from an environment variable or compiled in at deploy?
-2. Is JA3 or JA4 exposed to the worker as a request attribute, for cookie binding?
-3. Does `Vary_Cache` at origin re-serialize groups it did not register, so the meter value survives a miss? The source suggests yes; it needs a regression test on the VIP test application.
+Questions 7, 10, and 11 in [docs/known-limitations.md](../docs/known-limitations.md): the signing secret and JA3/JA4, `Date` and `Age` on hits, and whether `Vary_Cache` re-serializes unregistered groups on a miss.
 
 ## Crawler classification
 
@@ -423,6 +416,5 @@ To make skew visible, the worker sends its configuration version in `X-WPVIP-Con
 
 ### Platform questions
 
-1. Does the VIP edge expose verified-bot information (IP ranges or reverse DNS) to a worker?
-2. Can a phase 1 worker add a header and rewrite the cookie header on the origin request? The design depends on both.
+Questions 1 and 12 in [docs/known-limitations.md](../docs/known-limitations.md): the header and cookie rewrite the design depends on, and verified-bot data at the edge.
 

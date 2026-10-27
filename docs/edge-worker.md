@@ -444,17 +444,7 @@ confirmed" until measured on VIP.
 
 ## Open platform questions
 
-Collected from the spec and this implementation; none block local work.
-
-1. Does the cache key on a worker-rewritten `X-VIP-Go-Segmentation`, and
-   does the rewritten `Cookie` reach origin?
-2. Does `setCacheControl("no-store")` in phase 3 stop the store?
-3. KV read latency in phase 1, write visibility across locations, and
-   eviction rate.
-4. Does the runtime support `request.*` (needed by phase 3)?
-5. Is `Date` (and `Age`) reliably present on hits, or is a host clock
-   available to workers?
-6. Can a worker read a secret from an environment variable at deploy
-   time (`getenv`), and is JA3/JA4 exposed for cookie binding?
-7. Can a worker read and rewrite decrypted groups in encrypted mode?
-8. What is the cap on stored variants per URL?
+[known-limitations.md](known-limitations.md) keeps the one numbered list;
+none block local work. The ones this worker's code depends on most are
+the key rewrite (1), `no-store` from phase 3 (2), `resp.request` (8), and
+`Date` or `Age` on hits (10).

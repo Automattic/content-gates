@@ -42,6 +42,19 @@ a WPVIP application before any of it is a product claim.
 9. Does VIP's site purge (`WPCOM_VIP_Cache_Manager::purge_site_cache()`)
    exist under that name and purge every variant? The default listener
    guards with `method_exists`.
+10. Is `Date` (and `Age`) reliably present on hits, or is a host clock
+    available to workers? Phase 4's meter clock comes from them; without
+    `Age` it lags by up to the TTL on hits.
+11. Does `Vary_Cache` at origin re-serialize groups it did not register,
+    so a meter value survives a miss that rewrote the cookie? The source
+    suggests yes. Phase 4 no longer depends on it for counting, only for
+    the groups it merges the next state into.
+12. Does the VIP edge expose verified-bot information (IP ranges or
+    reverse DNS) to a worker? Without it, crawler classification stays
+    user-agent based and spoofable (accepted risk).
+
+This list is the single source; spec/page-cache.md and edge-worker.md
+point here by number.
 
 ## Not built in this slice
 

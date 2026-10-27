@@ -1,7 +1,7 @@
 # Public PHP API
 
 Version 0.1.0. The contract is specified in `spec/api.md`; this page is the
-integrator's view with worked examples.
+integrator's view.
 
 Every function lives in `Automattic\VIP\ContentGates`. Import them:
 
@@ -66,94 +66,25 @@ Rules:
 
 ## Timing
 
-The main query is resolved, headers go out, and templates load in this
-order on a page request. Everything the plugin does happens before the first
-byte of output.
+The timing table is in the spec, [spec/api.md](../spec/api.md#timing-window),
+and is not repeated here. The two facts integrators trip on:
 
-| Step | Hook | Who |
-| --- | --- | --- |
-| Segment post type registered; crawler records synced on admin requests | `init` 0, 1 | Plugin |
-| Every segment registered as a `Vary_Cache` group | `init` 5 | Plugin. Must stay before 10: `register_groups()` resets values |
-| Cookie parsed into membership | `init` 10 | `Vary_Cache` |
-| Providers assign or remove membership | `init` 11 and later, up to `send_headers` | Provider |
-| Write window closes; `Vary` and `Set-Cookie` sent | `send_headers` `PHP_INT_MAX - 1`, then `PHP_INT_MAX` | Plugin, then `Vary_Cache` |
-| Site code declares segments it reads outside blocks | `wp` (default priority) | Theme or plugin |
-| Declared set built; filter runs; declared header sent | `wp` `PHP_INT_MAX` | Plugin |
-| Reads | `template_redirect` and later | Blocks, templates, shortcodes |
-
-Core fires `send_headers` **before** the `wp` action (`WP::main()`), so the
-plugin finalizes the declared set at the end of `wp`, not on `send_headers`.
-Both run before output and before the template loads, and declarations on
-`wp` are exactly as the spec's examples show. Note the asymmetry: membership
-writes close at `send_headers`, declarations close at the end of `wp`.
-
-REST requests never reach `send_headers` or `wp`. There the declared set
-grows while the response is built (each post's stored set is merged just
-before its content renders) and the header, `Vary`, and any pending cookie
-are sent in `rest_pre_echo_response`, the last filter before the JSON is
-echoed. A provider route that assigns membership needs nothing extra; it
-must assign before the response is served.
+- Core fires `send_headers` **before** the `wp` action (`WP::main()`), so
+  membership writes close at `send_headers` and the declared set closes at
+  the end of `wp`. Both run before output and before the template loads.
+- REST requests never reach `send_headers` or `wp`. There the declared set
+  grows while the response is built (each post's stored set is merged just
+  before its content renders) and the header, `Vary`, and any pending
+  cookie are sent in `rest_pre_echo_response`, the last filter before the
+  JSON is echoed. A provider route that assigns membership needs nothing
+  extra; it must assign before the response is served.
 
 ## Examples
 
-**A subscriber-only item in the site header, on every page.** Every URL
-really has two variants, so declare site-wide.
-
-```php
-add_filter( 'content_gates_declared_segments', function ( array $segments ): array {
-	$segments[] = 'subscriber';
-	return $segments;
-} );
-
-// header.php
-if ( is_reader_in_segment( 'subscriber' ) ) {
-	get_template_part( 'template-parts/nav', 'subscriber' );
-}
-```
-
-**A different single-post template for donors.** Declare only where the read
-happens.
-
-```php
-add_action( 'wp', function (): void {
-	if ( is_singular( 'post' ) ) {
-		declare_segment( 'donor' );
-	}
-} );
-
-add_filter( 'template_include', function ( string $template ): string {
-	if ( is_singular( 'post' ) && is_reader_in_segment( 'donor' ) ) {
-		return get_theme_file_path( 'single-donor.php' );
-	}
-	return $template;
-} );
-```
-
-**A members-only shortcode.** The shortcode's owner declares when the content
-contains it.
-
-```php
-add_filter( 'content_gates_declared_segments', function ( array $segments, WP_Query $query ): array {
-	$post = $query->get_queried_object();
-	if ( $post instanceof WP_Post && has_shortcode( $post->post_content, 'members_only' ) ) {
-		$segments[] = 'subscriber';
-	}
-	return $segments;
-}, 10, 2 );
-
-add_shortcode( 'members_only', function ( array $atts, string $content = '' ): string {
-	return is_reader_in_segment( 'subscriber' ) ? do_shortcode( $content ) : '';
-} );
-```
-
-**Forgetting to declare.** The read returns `false` for everyone and, under
-`WP_DEBUG`, logs:
-
-```
-is_reader_in_segment(): Segment "subscriber" was read but not declared for this request. Declare it on the `wp` action or through the content_gates_declared_segments filter.
-```
-
-Nothing leaks and no cached copy is wrong. The fix is one declaration.
+Worked examples (a site-wide header item, a per-template read, a
+shortcode, a theme switch, and what forgetting to declare looks like) are in
+[spec/page-cache.md](../spec/page-cache.md#reads-outside-blocks-customer-examples).
+They were copied here once and drifted; the spec is the one copy.
 
 ## Platform loading
 
