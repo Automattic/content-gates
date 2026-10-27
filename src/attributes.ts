@@ -1,9 +1,9 @@
 /**
  * Group block attributes for content gating.
  *
- * These definitions must match the server registration in
- * `inc/rendering/class-block-gate.php` exactly. The server enforces the
- * attributes; the editor only reads and writes them.
+ * The names and modes must match the server registration in
+ * `inc/rendering/class-block-gate.php`. The server registers and enforces
+ * the attributes; the editor only reads and writes them.
  */
 
 export const GROUP_BLOCK = 'core/group';
@@ -20,22 +20,6 @@ export interface GateAttributes {
 	[ ATTR_SEGMENTS ]: string[];
 	[ ATTR_MODE ]: GateMode;
 }
-
-/**
- * Attribute definitions added to `core/group` on the client.
- */
-export const GATE_ATTRIBUTES = {
-	[ ATTR_SEGMENTS ]: {
-		type: 'array',
-		items: { type: 'string' },
-		default: [],
-	},
-	[ ATTR_MODE ]: {
-		type: 'string',
-		enum: [ MODE_IN, MODE_NOT_IN ],
-		default: MODE_IN,
-	},
-} as const;
 
 /**
  * Read the segment keys from a block's attributes, dropping anything that is
