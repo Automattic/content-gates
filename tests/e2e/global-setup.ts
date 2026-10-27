@@ -27,6 +27,9 @@ export default async function globalSetup(
 	// real theme so the suites can run back to back.
 	await requestUtils.activateTheme( 'twentytwentyfive' );
 	await requestUtils.activatePlugin( 'content-gates' );
+	// The example provider (examples/segment-provider, by its plugin name) is mapped by
+	// .wp-env.tests.json; PHPUnit's reset deactivates it too.
+	await requestUtils.activatePlugin( 'content-gates-example-provider' );
 	await requestContext.dispose();
 
 	// Seed through WP-CLI in the tests container. WP_BASE_URL alone only

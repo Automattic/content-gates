@@ -13,6 +13,12 @@ const FORM = {
 	segments: 'content_gates_segments[]',
 };
 
+function listedKeys( html: string ): string[] {
+	return [
+		...html.matchAll( /<input[^>]*type="checkbox"[^>]*value="([^"]+)"/g ),
+	].map( ( match ) => match[ 1 ] );
+}
+
 function nonceFrom( html: string ): string {
 	const match = /name="_wpnonce"[^>]*value="([0-9a-f]+)"/.exec( html );
 	expect( match, 'the page carries a nonce' ).not.toBeNull();
@@ -31,6 +37,19 @@ test.describe( 'example provider', () => {
 		expect( page.headers()[ 'cache-control' ] ).toContain( 'no-store' );
 		const html = await page.text();
 		expect( html ).toContain( 'value="subscriber"' );
+		// Slugs only, in type-then-key order: readers' segments, then the meter.
+		expect( html ).not.toContain( '>Subscriber<' );
+		// Segments left behind by the admin spec are ignored.
+		expect(
+			listedKeys( html ).filter(
+				( key ) => ! key.startsWith( 'e2e-segment-' )
+			)
+		).toEqual( [
+			'donor',
+			'newsletter',
+			'subscriber',
+			'metered-articles',
+		] );
 		expect( html ).toMatch(
 			/<input[^>]*value="metered-articles"[^>]*disabled=/
 		);

@@ -313,7 +313,6 @@ function render_page(): void {
 						<?php checked( is_reader_in_segment( $segment->key ) ); ?>
 						<?php disabled( ! is_choosable( $segment ) ); ?>
 					>
-					<?php echo esc_html( $segment->name ); ?>
 					<code><?php echo esc_html( $segment->key ); ?></code>
 				</label>
 				<?php if ( $segment->is_meter() ) : ?>

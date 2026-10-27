@@ -1,7 +1,8 @@
 # Example provider: pick your own segments
 
 A toy membership provider for Content Gates. One page, `/segments/`, lists
-every active reader segment with a checkbox. Any reader ticks the segments
+every active reader segment by key, with a checkbox, in the same order as the
+settings page. Any reader ticks the segments
 they want to be in and saves. No login, no entitlement check: the point is
 to show the integration, not to protect anything.
 
