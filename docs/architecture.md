@@ -16,6 +16,40 @@ narrows the header to the reader's values for those segments only. A page
 that reads nothing has one copy. A page gated on `subscriber` has two,
 whatever else the reader belongs to.
 
+## Why the Cache Personalization API alone is not enough
+
+The [VIP Cache Personalization API](https://docs.wpvip.com/caching/page-cache/customize-behavior/cache-personalization-api/)
+lets an application create cache groups and assign users to segments
+within them. This plugin uses it as designed. It also adds one step the
+API does not have, because the API cannot vary one URL on fewer groups
+than another.
+
+The API works like this:
+
+1. `Vary_Cache` writes every group a user is in to the `vip-go-seg` cache
+   segmentation cookie, as one string.
+2. The page cache passes that value in the `X-VIP-Go-Segmentation` request
+   header and sends `vary: x-vip-go-segmentation` on the response.
+3. The page cache serves content from the cache bucket that matches the
+   full value.
+
+There is no step where a URL names the groups it reads. `register_group()`
+only turns the `Vary` header on. The `Vary` header is the same for one
+group or twenty. Helpers such as `is_user_in_group_segment()` run during
+render, after the cache bucket is chosen. The docs give the result: "The
+higher the number of groups that exist, the higher the variance in caching
+responses. This can decrease cache efficacy."
+
+For a gating product this cost grows with every segment. A user in
+`subscriber`, `newsletter`, and `donor` gets a private copy of every URL,
+including pages that read no segment at all.
+
+The fix is the **declared set**. Origin says, before output, which groups a
+URL may read. An Edge Worker then shortens `X-VIP-Go-Segmentation` to those
+groups before the cache lookup. The cookie, `Vary_Cache`, and the page cache
+do not change. Only the value the cache keys on changes. See the gap table
+in `spec/page-cache.md`.
+
 ## Components
 
 `Plugin::boot()` (`inc/class-plugin.php`) constructs every component in one
