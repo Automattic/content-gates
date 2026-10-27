@@ -399,6 +399,31 @@ test( 'phase 4: an origin assignment on a metered miss survives into one final c
 	);
 } );
 
+test( 'phase 4 counts the view by the state the lookup used, not by what origin echoed', () => {
+	// The request carried `wall`: nothing was delivered. Origin's Set-Cookie
+	// says `open` (a stale echo); the view must still not be counted.
+	const input = clientResponse(
+		'vip-go-seg=vc-v1__metered-articles_--_wall',
+		CHROME,
+		[ METER ]
+	);
+	input.setCookies = [
+		'vip-go-seg=vc-v1__metered-articles_--_open---__newsletter_--_1; Path=/',
+	];
+	const out = onClientResponsePure( input, nodeCrypto );
+	const records = parseMeterCookie(
+		getCookie( out.setCookies[ 0 ].split( ';' )[ 0 ], 'vip-go-meter' ),
+		'test-secret',
+		nodeCrypto
+	);
+	assert.equal( records[ 0 ].count, 0 );
+	assert.equal(
+		out.setCookies[ 1 ],
+		'vip-go-seg=vc-v1__metered-articles_--_open---__newsletter_--_1; Path=/',
+		"origin's groups still win for the merge"
+	);
+} );
+
 test( 'phase 4: an origin removal is not restored from the request cookie', () => {
 	const removed = clientResponse(
 		'vip-go-seg=vc-v1__subscriber_--_1',

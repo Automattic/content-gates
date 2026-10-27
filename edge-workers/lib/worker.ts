@@ -397,13 +397,15 @@ export class ClientResponseOutput {
  * is configured (an unsigned cookie would be forgeable), and when the
  * response date is unreadable (a period reset needs a clock).
  *
- * The groups the meter state is merged into come from origin's own
- * `vip-go-seg` `Set-Cookie` on this response when there is one, and from
- * the request cookie otherwise. On a metered miss a provider may have
- * assigned or removed a group; reading the request cookie there would
- * write the stale membership back over origin's decision. The response's
- * `Set-Cookie` list is rewritten as a whole so exactly one `vip-go-seg`
- * reaches the browser; other cookies pass through untouched.
+ * The state that decided the lookup is the request cookie's; that is what
+ * says whether content was delivered. The groups the next state is merged
+ * into come from origin's own `vip-go-seg` `Set-Cookie` on this response
+ * when there is one, and from the request cookie otherwise. On a metered
+ * miss a provider may have assigned or removed a group; reading the
+ * request cookie there would write the stale membership back over
+ * origin's decision. The response's `Set-Cookie` list is rewritten as a
+ * whole so exactly one `vip-go-seg` reaches the browser; other cookies
+ * pass through untouched.
  *
  * @param input  Response and request facts.
  * @param crypto Hash provider.
@@ -444,10 +446,13 @@ export function onClientResponsePure(
 		return out;
 	}
 
+	const lookupCookie = getCookie( input.cookie, SEGMENT_COOKIE );
+	const lookupGroups = parseSegmentation( lookupCookie );
+
 	// Base segmentation: origin's decision on this response wins over the
 	// request cookie. The last `vip-go-seg` field is it; one that expires
 	// the cookie means "no groups". Every other cookie is kept as sent.
-	let base: string | null = getCookie( input.cookie, SEGMENT_COOKIE );
+	let base: string | null = lookupCookie;
 	let originAttributes: string | null = null;
 	const kept: string[] = [];
 	for ( let i = 0; i < input.setCookies.length; i++ ) {
@@ -489,7 +494,7 @@ export function onClientResponsePure(
 		const next = advanceMeter(
 			records,
 			spec,
-			groups.get( spec.group ),
+			lookupGroups.get( spec.group ),
 			input.now,
 			crypto
 		);
