@@ -31,8 +31,8 @@ Tooling, all pinned in `composer.json` / `package.json`:
   (`playwright.config.ts`).
 
 Support floor: WordPress 7.0+, PHP 8.2+, Node 22+ (`.nvmrc` pins 24; the
-edge simulator and its tests run `.ts` files with Node's built-in type
-stripping, and the VIP Edge Worker SDK needs 22.19+). wp-env runs PHP 8.3
+Node test suites run `.ts` files with Node's built-in type stripping, and
+the VIP Edge Worker SDK needs 22.19+). wp-env runs PHP 8.3
 and latest WordPress core. See `spec/decisions.md`.
 
 ```bash
@@ -56,7 +56,7 @@ Class autoloading follows WordPress file naming:
 platform copy is absent. It is excluded from PHPCS and analyzed as a
 scanned file only. Re-copy from upstream to update; never edit it.
 
-Keep development and test data separate. Do not run database-resetting suites against a shared environment concurrently. Local edge simulation should follow WPVIP cache behavior. Document and warn about any variances.
+Keep development and test data separate. Do not run database-resetting suites against a shared environment concurrently. There is no local edge emulation: edge behavior is tested as a contract (`tests/fixtures/edge-contract.json`, `edge-workers/tests/`), and platform behavior is observed only on a VIP application.
 
 ## Coding standards
 
@@ -90,7 +90,7 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `artifacts/`: gitignored Playwright output and auth storage state
 - `bin/`: repo scripts (`doctor.mjs`)
 - `config/`: data shared by the plugin and the Edge Worker (`crawlers.json`)
-- `edge-workers/`: the VIP CLI edge-workers project (`vip edge-workers init` layout): `workers/content-gates/` (manifest + SDK entry), `lib/` (shared pure modules), `sim/` (local simulator), `tests/` (Node tests), `scripts/` (crawler config generator). Its own npm package: `npm run edge:install`
+- `edge-workers/`: the VIP CLI edge-workers project (`vip edge-workers init` layout): `workers/content-gates/` (manifest + SDK entry), `lib/` (shared pure modules), `tests/` (Node tests: modules, the edge contract, sequences through an in-memory edge), `scripts/` (crawler config generator). Its own npm package: `npm run edge:install`
 - `docs/`: docs for humans and agents; start at `docs/README.md`
 - `examples/`: separate plugins that show how to integrate. `segment-provider/` is a toy provider: any reader picks their own segments at `/segments/`. Both wp-env configs map and activate it; it is never deployed
 - `inc/`: server PHP (`class-plugin.php` wires components to hooks; `docs/architecture.md` maps each class)
@@ -100,7 +100,8 @@ Keep development and test data separate. Do not run database-resetting suites ag
   - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `class-content-gates-test-case.php`, `test-*.php`)
   - `tests/e2e/`: Playwright specs, `helpers.ts`, and `global-setup.ts` (seeds the tests site)
   - `tests/js/`: `node --test` suites for the editor's pure modules
-  - `tests/fixtures/mu-plugins/`: the local-only demo provider, seeder, and purge bridge, mapped into both wp-env sites
+  - `tests/fixtures/mu-plugins/`: the local-only demo provider and seeder, mapped into both wp-env sites
+  - `tests/fixtures/edge-contract.json`: the formats that cross the origin/edge boundary, read by PHPUnit and the edge suite
   - `tests/phpstan/`: stubs for static analysis only
   - `tests/debugging/`: debugging/analysis tools (none yet; its README says what belongs there)
 - `.github/workflows/ci.yml`: static checks, edge tests, PHPUnit, Playwright
@@ -112,7 +113,6 @@ composer install          # PHP tooling (PHPCS/WPCS, PHPUnit 9 + polyfills)
 npm install               # JS tooling (@wordpress/scripts, wp-env, Playwright)
 npm run edge:install      # edge-workers/ tooling (VIP edge SDK, AssemblyScript); only needed for edge:build
 npm run setup             # build the editor script, start the dev site, seed demo data
-npm run edge:sim          # optional: edge simulator on :8890 in front of the dev site
 ```
 
 `docs/local-development.md` has the demo flows (join/leave segments at
@@ -149,10 +149,10 @@ independent — separate databases included. Personal overrides go in
 ## Testing
 
 ```bash
-npm run test:edge           # Edge Worker logic + simulator, Node only, no Docker
+npm run test:edge           # Edge Worker logic, contract, and sequences, Node only, no Docker
 npm run test:js             # Editor pure functions (src/options.ts, src/attributes.ts), Node only
 npm run test:php            # PHPUnit in the wp-env tests container
-npm run test:e2e            # Playwright E2E against the wp-env tests site (+ in-process edge simulator)
+npm run test:e2e            # Playwright E2E against the wp-env tests site
 ```
 
 **Iterate at the cheapest layer that can catch the change.** The ladder,
@@ -164,18 +164,17 @@ fast → slow (only the last two need wp-env):
 2. `npm run lint:js`: ESLint over `src/`, `edge-workers/`, `bin/`, `tests/e2e/`,
    `tests/js/`, and `playwright.config.ts`. `npx tsc --noEmit` type-checks `src/`.
 3. `npm run test:edge` and `npm run test:js`: `node --test` over the pure
-   edge modules and the simulator against a fake origin, and over the
-   editor's pure modules (`tests/js/`). Seconds, no Docker.
+   edge modules, the edge contract fixture, and multi-request sequences
+   through an in-memory edge (`edge-workers/tests/edge-harness.ts`), and
+   over the editor's pure modules (`tests/js/`). Seconds, no Docker.
 4. `npm run test:php`: PHPUnit inside the tests-env `cli` container with the
    WordPress test library. Covers segments, membership, declared set,
    rendering, excerpts, REST, admin page and switcher, edge notice, WP-CLI
    (through a recording `WP_CLI` fake), Newspack bridge.
 5. `npm run test:e2e`: Playwright against the tests site. Covers response
    bytes on page/feed/REST, cookies, the admin page, the editor control,
-   the example provider, the edge simulator in front of the real site, and
-   the purge bridge from origin to the simulator. Starts the tests env if
-   the base URL does not answer; needs `npm run build` first for the
-   editor spec.
+   and the example provider. Starts the tests env if the base URL does not
+   answer; needs `npm run build` first for the editor spec.
 
 Single-test loops: Don't rerun a whole suite while iterating on one
 failure:
@@ -213,10 +212,6 @@ They exist so a failure is observable without re-instrumenting:
 - **Playwright traces**: every failure keeps a trace, video, and
   `error-context.md` under `artifacts/test-results/`. Open with
   `npx playwright show-trace <trace.zip>`.
-- **Edge simulator**: `GET /__edge/stats` lists stored copies and KV
-  records; `POST /__edge/reset` clears them. Every response carries
-  `X-Edge-Sim` and `X-Edge-Sim-Record`; the worker's own key header is
-  on every response too.
 - **Diagnostic response headers**, always on: origin's
   `X-WPVIP-Content-Gates-Declared` (what the URL may read) and the worker's
   `X-WPVIP-Content-Gates-Key` (the key the request resolved to, phase 3,

@@ -35,16 +35,15 @@ the same way.
 | `edge-workers/lib/crawlers.ts` | Classification against the compiled-in crawler list. |
 | `edge-workers/lib/crawlers-config.ts` | Generated from `config/crawlers.json` by `scripts/crawlers-config.mjs`. |
 | `edge-workers/lib/cookies.ts`, `crypto.ts`, `httpdate.ts` | Small helpers. |
-| `edge-workers/sim/` | Local page-cache emulator around the same pure modules. |
-| `edge-workers/tests/` | `node:test` suites for the modules and the simulator. |
+| `edge-workers/tests/` | `node:test` suites: the modules, the edge contract (`contract.test.ts`), and multi-request sequences through `edge-harness.ts` (`sequence.test.ts`). |
 | `edge-workers/scripts/crawlers-config.mjs` | Regenerates the crawler module before a build. |
 
 Everything under `edge-workers/lib/` compiles under
 AssemblyScript **and** runs unchanged under Node. That is why the code
 avoids `Map`, closures, `for...of`, regex, template literals, and `===`
 on strings, and why hashing is injected (`Crypto`) instead of imported:
-the worker passes the SDK's host crypto, the simulator passes
-`node:crypto`. One implementation, tested once, deployed twice.
+the worker passes the SDK's host crypto, the tests pass `node:crypto`.
+One implementation, tested once, deployed once.
 
 ## Request flow
 
@@ -218,8 +217,8 @@ cookie next to it:
 | present, `Vary` set | header absent | The worker did not run phase 3 on this response |
 | absent, `Vary` set | any | Origin fault: a segmented response with no declared set. Phase 3 marks it `no-store` |
 
-The simulator sets the same key header, next to its own `X-Edge-Sim-*`, so
-a local run and a live run read the same way.
+The test harness reads the same header, so a local sequence and a live run
+read the same way.
 
 ## KV record layout
 
@@ -280,8 +279,7 @@ Phase 4 reads `CONTENT_GATES_METER_SECRET` with `getenv()`. When it is
 unset or empty the worker does **no metering at all**: it writes no
 cookies, so readers stay at the no-cookie state and metered Groups stay
 withheld. Set it at deploy time as a worker environment variable; never
-compile it in or commit it. The simulator takes `--secret` and defaults
-to `local-dev-secret`.
+compile it in or commit it. The test harness passes a fixed test secret.
 
 ## Time without a clock
 
@@ -297,7 +295,7 @@ cache TTL on a hit, which is fine for periods measured in days. If the
 ```bash
 npm run edge:install  # once: edge-workers/ dependencies (SDK, AssemblyScript), its own package
 npm run edge:build    # regenerates lib/crawlers-config.ts, then `vip edge-workers build --all`
-npm run test:edge     # node:test suites for the pure modules and the simulator; no build needed
+npm run test:edge     # node:test suites: modules, contract, sequences; no build needed
 npm run lint:js       # ESLint over edge-workers/ (and the rest of the project)
 ```
 
@@ -309,8 +307,7 @@ validator. `npm run edge:build` runs the CLI through `npx` at a pinned
 version so CI and laptops compile alike; with VIP-CLI installed globally,
 `cd edge-workers && npm run build` is the same thing.
 
-`lib/crawlers-config.ts` is committed so tests and the simulator run
-without a build; `tests/crawlers.test.ts` fails when it is out of date
+`lib/crawlers-config.ts` is committed so the tests run without a build; `tests/crawlers.test.ts` fails when it is out of date
 with `config/crawlers.json`.
 
 The worker imports only `env.abort`, `crypto.sha256`, `crypto.hmac_sha256`,
@@ -362,85 +359,32 @@ requirements to confirm on the first deploy:
   `Cookie` header, and the cache must key on the rewritten value
   (spec/page-cache.md, platform question 1).
 
-## Running the simulator
+## Testing the contract locally
 
-```bash
-npm run env start                       # dev WordPress on :8888
-npm run edge:sim -- --verbose           # emulated edge on :8890 -> :8888
-curl -i http://localhost:8890/article-1/ -H 'Cookie: vip-go-seg=vc-v1__subscriber_--_1'
-curl -s http://localhost:8890/__edge/stats | jq
-curl -X POST http://localhost:8890/__edge/purge -d '{"url":"/article-1/"}'
-curl -X POST http://localhost:8890/__edge/reset
-```
+There is no local emulation of WPVIP's edge. Three layers stand in for it,
+each stating what it assumes:
 
-Flags: `--origin` (default `http://localhost:8888`), `--port` (default
-`8890`), `--secret` (default `local-dev-secret`), `--verbose`.
+1. **Pure functions.** Every decision the worker makes is a function over
+   plain inputs in `lib/`, and `tests/*.test.ts` covers each branch. This
+   is the worker's own contract: what it does with what it is given.
+2. **The boundary fixture.** `tests/fixtures/edge-contract.json` (plugin
+   root) pins the declared header, the meter header, the segmentation
+   cookie, and the header names. `tests/unit/test-edge-contract.php` proves
+   origin emits and parses them; `tests/contract.test.ts` proves the worker
+   does. A format change fails one side until both move.
+3. **Sequences.** `tests/edge-harness.ts` is an in-memory edge that runs the
+   three phases around a cache with only the rules the design depends on:
+   a copy is keyed by URL plus the narrowed `X-VIP-Go-Segmentation` value
+   when `Vary` names that header; a response is stored only if it is a 200
+   to a GET with no `Set-Cookie` and no `no-store`; phases run on every
+   request and delivery; KV is a map; a purge keeps records.
+   `tests/sequence.test.ts` runs the learn, narrow, widen, shrink, crawler,
+   meter-on-hit, and bypass scenarios through it against a fake origin.
 
-Every response carries two simulator headers next to the worker's own
-`X-WPVIP-Content-Gates-Key`:
-
-| Header | Meaning |
-| --- | --- |
-| `X-Edge-Sim` | `HIT`, `MISS`, or `PASS` |
-| `X-Edge-Sim-Record` | Declared groups known for the URL, `(empty)`, or `-` for none |
-
-`GET /__edge/stats` returns hits, misses, passes, stored entries with
-their keys, and KV records with the URL each belongs to. `POST
-/__edge/purge` with `{"url": "/path"}` purges every variant of that URL
-(what a post save does on VIP); without a body it purges everything.
-`POST /__edge/reset` purges and clears KV.
-
-From Playwright, `import { startEdgeSim } from '../../edge-workers/sim/server.ts'`
-and call `startEdgeSim({ origin, port: 0, secret })`; it resolves to
-`{ url, close() }`.
-
-WordPress generates links with its configured home URL, so a browser that
-enters through `:8890` leaves for `:8888` on the first click unless
-`WP_HOME`/`WP_SITEURL` point at the simulator. For header-level checks
-with `curl` or `fetch` this does not matter.
-
-## Variances from WPVIP
-
-Everything the simulator guesses. Treat each as "plausible, not
-confirmed" until measured on VIP.
-
-- **Cache key composition.** Key is method + path + query + the narrowed
-  `X-VIP-Go-Segmentation` value, applied only when the stored response's
-  `Vary` names that header; otherwise one copy serves every reader. VIP
-  keys on a fixed `Vary` allowlist; the real key may include host, scheme,
-  or other allowed fields.
-- **TTL.** `s-maxage`, then `max-age`, else 300 seconds. VIP's defaults,
-  `Expires` handling, and `X-Accel-Expires` are not emulated. Stale
-  entries are not revalidated; they simply miss.
-- **Pass rules.** The simulator passes through exactly the requests the
-  worker bypasses (`lib/bypass.ts`): one list for both. `/wp-json/` is
-  cacheable like any GET. VIP's own pass list is longer and includes
-  platform-specific rules; a request VIP passes but the worker handles is
-  harmless (the rewrite happens, nothing is stored).
-- **Storability.** Only 200 GET responses without `Set-Cookie` and without
-  `no-store`, `no-cache`, `private`, or `max-age=0`. VIP may store other
-  statuses (301, 404) and may strip rather than refuse some cookies.
-- **Phases on a pass.** Phase 1 runs on every request (as on the
-  platform) and bypasses these; phases 3 and 4 run too, so a pass reads
-  `X-WPVIP-Content-Gates-Key: bypass` and is never stored. Whether VIP runs
-  response phases on a pass is unknown; if it does not, a live pass
-  carries no key header at all. The worker is correct either way.
-- **`setCacheControl("no-store")`** is emulated by replacing
-  `Cache-Control` and adding `X-Original-Cache-Control`, as the SDK does.
-  Whether VIP forwards the rewritten header to the client is unknown.
-- **KV durability and visibility.** The simulator's KV is a process-local
-  map with no eviction and immediate visibility. VIP's is LRU-evicted,
-  site-wide, with unknown cross-location propagation.
-- **`Age`.** The simulator adds `Age` on hits. VIP may not, in which case
-  phase 4's clock lags by up to the TTL on hits.
-- **`resp.request` runtime requirement.** The simulator always has the
-  snapshots; VIP needs a runtime with `request.*` support.
-- **Encrypted mode.** `vip-go-auth` (encrypted segmentation) is not
-  supported by the worker or the simulator. The design is specified for
-  plaintext mode only.
-- **Host header.** Requests are forwarded with the origin's `Host`,
-  `Accept-Encoding: identity`, and hop-by-hop headers stripped; redirects
-  are passed through, not followed.
+Whether WPVIP's cache follows the harness's rules is not something a
+local test can show. Each rule is a platform question in
+[known-limitations.md](known-limitations.md); the live validation
+scenarios answer them with the diagnostic headers above.
 
 ## Open platform questions
 

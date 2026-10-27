@@ -1,10 +1,11 @@
 /**
  * The worker's three phases as pure functions over plain inputs.
  *
- * workers/content-gates/assembly/index.ts (the worker) and sim/server.ts (the simulator)
- * both marshal headers into these inputs and apply the outputs, so the
- * decision logic is written once and tested once. Nothing here touches
- * the SDK, KV, or the network.
+ * workers/content-gates/assembly/index.ts (the worker) and
+ * tests/edge-harness.ts (the in-memory edge the sequence tests use) both
+ * marshal headers into these inputs and apply the outputs, so the decision
+ * logic is written once and tested once. Nothing here touches the SDK, KV,
+ * or the network.
  *
  * Phases run in isolation on the platform: module state does not survive
  * from one phase to the next. Phase 1 therefore records what later phases
@@ -220,7 +221,7 @@ export class OriginResponseOutput {
 	noStore: bool = false;
 	/** New KV record to write, or null to leave the record alone. */
 	record: string | null = null;
-	/** Why, for tests and the simulator's log. */
+	/** Why, for tests. */
 	reason: string = '';
 	/** Value for `KEY_HEADER`. */
 	key: string = KEY_UNKNOWN;

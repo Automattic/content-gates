@@ -20,8 +20,7 @@ use Automattic\VIP\ContentGates\Segments\Segment;
  * key is in no cookie or stored set yet, and a rename changes no key.
  * Crawler sync reaches here through the same status-change path when it
  * deactivates a removed segment. On WPVIP the default listener calls the
- * cache manager's site purge; elsewhere the action is the extension point
- * (the local edge simulator fixture listens to it).
+ * cache manager's site purge; elsewhere the action is the extension point.
  *
  * One purge per request: a site purge covers every later change in the
  * same request, and one configuration change can arrive as several events

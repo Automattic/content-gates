@@ -3,8 +3,9 @@
 Required result: zero restricted bytes in page, REST, and feed responses for
 non-entitled requests. Other surfaces may ship with an explicit known
 limitation. Each row names the test that proves the result. "Origin" rows
-were observed on wp-env; "edge" rows on the simulator only. Nothing has been
-observed on a VIP application yet.
+were observed on wp-env; "edge" rows hold for the worker's logic under the
+contract in `edge-workers/tests/edge-harness.ts`. Nothing has been observed
+on a VIP application yet.
 
 | Surface | Result | Evidence | Notes |
 | --- | --- | --- | --- |
@@ -28,7 +29,7 @@ observed on a VIP application yet.
 | Listing teasers (`the_content()` on archives) | No gated bytes, for everyone | by design: archives declare nothing, reads fail closed | A theme that shows full content on archives must declare |
 | Template parts, shortcodes | Reads fail closed unless declared | `Test_Membership::test_undeclared_read_fails_closed` | |
 | Object cache, transients, fragment caches | Not used for rendered gated HTML | by design | The plugin caches only the segment list |
-| Cross-variant cache leak | Entitled copy never served to a non-entitled reader | `edge-cache.spec.ts`, `edge-workers/tests` | Simulator only; coverage check refuses too-narrow keys |
+| Cross-variant cache leak | Entitled copy never served to a non-entitled reader | `edge-workers/tests/sequence.test.ts` | Under the contract's keying rule; the coverage check refuses too-narrow keys |
 | Forged crawler cookie | Gains nothing | `edge-cache.spec.ts` "a search crawler ...", `Test_Structured_Data::test_crawler_value_is_not_read_on_archives` | The worker strips crawler groups from incoming cookies; origin reads them only where an editor assigned them to a Group, and archives declare nothing |
 | Forged `vip-go-seg` membership | **Accepted risk** | spec/segment-admin.md | Plaintext cookie; a reader who writes `subscriber_--_1` is a subscriber. Recorded, not mitigated |
 | Spoofed crawler user agent | **Accepted risk** | spec/page-cache.md | Receives the crawler variant |

@@ -114,8 +114,8 @@ Crawler segments must now be selected on each Group by hand ([decisions.md](deci
   meter header keeps the two writers consistent on cache hits without an
   edge deployment setting. Cheap; schedule with the next worker change.
 - **Explicit `no-store` when origin changed `vip-go-seg`.** Platform
-  caches already refuse responses with `Set-Cookie`, and the simulator
-  mirrors that. Add the rule to phase 3 as belt-and-braces once the live
+  caches already refuse responses with `Set-Cookie`, and the edge test
+  harness assumes that. Add the rule to phase 3 as belt-and-braces once the live
   storage-control checks confirm the baseline, so the worker never
   depends on it silently.
 - **Crawler responses that carry an origin `vip-go-seg`.** Phase 1

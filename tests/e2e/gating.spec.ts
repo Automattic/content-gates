@@ -175,7 +175,7 @@ test.describe( 'gating at origin', () => {
 		baseURL,
 	} ) => {
 		// At origin the crawler value arrives in the cookie header the edge
-		// rewrites; the edge simulator spec covers the user-agent step.
+		// rewrites; edge-workers/tests covers the user-agent step.
 		const ctx = await reader( baseURL!, { 'crawlers-search': '1' } );
 		const body = await ( await ctx.get( SEED.gatedArticle ) ).text();
 		expect( body ).toContain( SEED.subscriberOnly );

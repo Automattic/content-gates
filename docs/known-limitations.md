@@ -83,7 +83,7 @@ point here by number.
   bundled copy loads.
 - **Cookie expiry at the browser.** The lifetime filter and the clamp are
   tested; that a browser drops the cookie after `Max-Age` is browser
-  behavior and is not simulated.
+  behavior and has no test.
 - **Rich Results Test.** The JSON-LD follows Google's paywall schema; it has
   not been submitted to the test, which needs a public URL.
 
@@ -94,8 +94,13 @@ evidence that would reopen them, are in
 [spec/open-questions.md](../spec/open-questions.md): the declared-set
 fingerprint, exact-equality coverage, and meter cookie v2.
 
-## Simulator variances
+## What local evidence means
 
-`docs/edge-worker.md` lists where the local simulator can differ from the
-real edge. Treat every edge claim in this repository as "designed and
-simulated", not "observed".
+There is no local edge emulation. The worker's logic is tested as pure
+functions; the formats that cross the origin/edge boundary are pinned in
+`tests/fixtures/edge-contract.json` and checked on both sides; and
+multi-request sequences run through an in-memory edge that applies only
+the cache rules the design depends on (`edge-workers/tests/edge-harness.ts`).
+Whether WPVIP's cache follows those rules is the platform-question list
+above. Treat every edge claim in this repository as "designed and tested
+under the contract", not "observed".

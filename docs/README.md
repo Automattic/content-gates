@@ -7,7 +7,7 @@ and feed responses at origin, and tells the edge exactly which segments each
 URL may vary on.
 
 This is a prototype. Everything about the WPVIP edge is designed and
-simulated locally; nothing has run on a VIP application yet. See
+tested as a contract; nothing has run on a VIP application yet. See
 [known-limitations.md](known-limitations.md) before drawing platform
 conclusions.
 
@@ -18,7 +18,7 @@ conclusions.
 | [api.md](api.md) | Theme and provider developers | The public PHP functions, hooks, errors, and timing window |
 | [providers.md](providers.md) | Provider integrators | How a provider assigns membership; the Newspack bridge |
 | [editor.md](editor.md) | Editors and engineers | The Segments control on Group blocks |
-| [edge-worker.md](edge-worker.md) | Edge engineers | The VIP Edge Worker, its simulator, and their variances |
+| [edge-worker.md](edge-worker.md) | Edge engineers | The VIP Edge Worker and how its contract is tested |
 | [leak-surfaces.md](leak-surfaces.md) | Reviewers | Every delivery surface, its test, and its result |
 | [known-limitations.md](known-limitations.md) | Everyone | Accepted risks, open platform questions, deferred work |
 
@@ -42,7 +42,7 @@ releases before removal.
 | `content_gates_rest_headers_sent` | none | After the declared header went out on a REST response. The membership layer sends `Vary` and the cookie here. |
 | `content_gates_segment_changed` | `Segment $segment, string $change` | After a segment was created, activated, deactivated, or reconfigured. |
 | `content_gates_crawlers_synced` | `string[] $changed` | After crawler records were synchronized with `config/crawlers.json`. |
-| `content_gates_purge_all` | `string $reason` | A site-wide purge is needed. The default listener calls WPVIP's site purge; the local fixture forwards it to the edge simulator. |
+| `content_gates_purge_all` | `string $reason` | A site-wide purge is needed. The default listener calls WPVIP's site purge. |
 | `content_gates_newspack_rule_missing` | `string $slug` | A mapped Newspack rule is not registered, so nothing was assigned for it. |
 
 ### Filters

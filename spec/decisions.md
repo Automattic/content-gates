@@ -62,7 +62,7 @@ Defects confirmed in the prototype and fixed. Each has a regression test.
 
 - Edge Workers expose no logs, so the worker reports each decision on the response: `X-WPVIP-Content-Gates-Edge-Coverage` from phase 3 (stored with the copy) and `X-WPVIP-Content-Gates-Edge-Meter` from phase 4 (per delivery). Origin echoes the worker's request markers in `X-WPVIP-Content-Gates-Edge-Received`. Comparing the echo with the coverage header localizes a failure to phase 1, the request snapshot, or the record.
 - Always on, not gated. A request-gated header fails exactly when the request snapshot is the thing under test. A deployment-gated header makes the live evidence depend on configuration and invites the question of whether it was on. The values are low cardinality and reveal nothing the declared header does not. Revisit if a cost appears.
-- These headers are the evidence format for the live validation scenarios; the simulator emits the same names so local and live runs read alike.
+- These headers are the evidence format for the live validation scenarios; the edge test harness reads the same names so local and live runs read alike.
 - Reduced 2026-10-26 to one worker header. What a reader needs is the declared set, the key the request resolved to, and whether origin answered sanely. The declared header gives the first; `X-WPVIP-Content-Gates-Key` (phase 3, stored with the copy) gives the second; a segmented response with no declared header is the third. Cache status comes from the platform and membership from the cookie, so the coverage reason, origin's marker echo, and the meter report were redundant and were removed. Headers are added back one at a time when a live question cannot be answered from these.
 
 ## Crawler assignment (2026-10-26)
@@ -74,7 +74,7 @@ Defects confirmed in the prototype and fixed. Each has a regression test.
 ## Worker scope (2026-10-23)
 
 - The worker's `worker.json` has no `location`: any URL may serve gated content, and the platform's only pre-invocation condition is one path rule with no negation. Scoping by path would silently drop narrowing, metering, and crawler classification on every URL outside the rule.
-- The "except" list is inside phase 1 instead: non-GET/HEAD, `Authorization`, admin and login paths, `/wp-content/` and `/wp-includes/`, static file extensions, and logged-in or no-cache session cookies. These responses can never be stored under a segmented key, so skipping the KV read and the rewrites costs nothing and saves one KV read per asset. The request is marked `bypass`; phase 3 never stores a bypassed response and phase 4 never meters one. The simulator uses the same list.
+- The "except" list is inside phase 1 instead: non-GET/HEAD, `Authorization`, admin and login paths, `/wp-content/` and `/wp-includes/`, static file extensions, and logged-in or no-cache session cookies. These responses can never be stored under a segmented key, so skipping the KV read and the rewrites costs nothing and saves one KV read per asset. The request is marked `bypass`; phase 3 never stores a bypassed response and phase 4 never meters one.
 - `on_failure` is `error`: a worker that fails after phase 1 narrowed the key must not let the response be stored unchecked. Whether the policy is per phase is a platform question.
 
 ## Caching

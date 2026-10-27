@@ -17,14 +17,11 @@ with the plugin active, the demo provider loaded, four segments
 two VIP crawler segments, and seven demo posts whose text carries markers
 such as `SUBSCRIBER-ONLY` so a response can be checked with `grep`.
 
-Then, to see the edge behavior, start the simulator in front of it:
-
-```bash
-npm run edge:sim                  # http://localhost:8890 -> origin :8888
-```
-
-Use `:8890` as the site. Every response carries `X-Edge-Sim: HIT|MISS|PASS`
-and the worker's `X-WPVIP-Content-Gates-Key`, the key the request resolved to.
+There is no local edge. To see what the edge would do with a request, use
+the headers origin sends (`X-WPVIP-Content-Gates-Declared`, the meter
+header) and the edge suites (`npm run test:edge`), which run the worker's
+phases in memory. Hits, misses, and narrowing are observed on a VIP
+application only.
 
 `npm run doctor` checks the toolchain, Docker, both wp-env instances, and
 who owns the ports.
@@ -45,9 +42,9 @@ real entitlement provider and only loads where `WP_ENVIRONMENT_TYPE` is
   ```bash
   curl -s -c jar -X POST -H 'Content-Type: application/json' \
     -d '{"segment":"subscriber","action":"assign"}' \
-    http://localhost:8890/wp-json/content-gates-dev/v1/membership
-  curl -s -b jar http://localhost:8890/gated-article/ | grep -c SUBSCRIBER-ONLY   # 1
-  curl -s        http://localhost:8890/gated-article/ | grep -c SUBSCRIBER-ONLY   # 0
+    http://localhost:8888/wp-json/content-gates-dev/v1/membership
+  curl -s -b jar http://localhost:8888/gated-article/ | grep -c SUBSCRIBER-ONLY   # 1
+  curl -s        http://localhost:8888/gated-article/ | grep -c SUBSCRIBER-ONLY   # 0
   ```
 
 - **With curl, form path (post-redirect-get):** the example provider's
@@ -63,18 +60,22 @@ real entitlement provider and only loads where `WP_ENVIRONMENT_TYPE` is
   Pick segments and a meter state; the response is `Cache-Control:
   no-store` and never reaches the edge.
 
-Things to try, with the simulator running:
+Things to try against origin. The edge forwards a crawler's classification
+and a reader's membership as the `vip-go-seg` cookie, so a cookie set by
+hand stands in for it:
 
 | Try | Expect |
 | --- | --- |
-| Open `/gated-article/` twice anonymously | `MISS` then `HIT`; no `SUBSCRIBER-ONLY` |
-| Join `newsletter`, open it again | `HIT` with the same empty key: the URL does not declare `newsletter` |
-| Join `subscriber` | `MISS` with key `vc-v1__subscriber_--_1`, then `HIT`s; the article is there and the prompt is gone |
-| Open `/public-post/` with any membership | One copy for everyone; `X-WPVIP-Content-Gates-Key: none` (nothing to vary on) |
-| `curl -A Googlebot http://localhost:8890/gated-article/` | Full article, `content-gates-gated-1` class, JSON-LD in the footer, no `Set-Cookie` |
-| Open `/metered-article/`, `/metered-article-2/`, `/metered-article-3/`, then the first again in one cookie jar | First visit shows the gate and sets `open`; then three articles; then `METERED-WALL` |
-| Deactivate `subscriber` on Settings > Content Gates | The simulator's store is purged; subscribers see the gate until reactivation |
-| `curl -s http://localhost:8890/__edge/stats` | Stored copies per key and the KV record per URL |
+| `curl -si http://localhost:8888/gated-article/` | No `SUBSCRIBER-ONLY`; `X-WPVIP-Content-Gates-Declared: crawlers-ai, crawlers-search, subscriber` (what the edge may key on) |
+| `curl -s -b 'vip-go-seg=vc-v1__newsletter_--_1' http://localhost:8888/gated-article/` | Same bytes: the URL does not declare `newsletter`, and the edge would serve the same copy |
+| `curl -s -b 'vip-go-seg=vc-v1__subscriber_--_1' http://localhost:8888/gated-article/` | The article, and the prompt is gone |
+| `curl -si http://localhost:8888/public-post/` | `X-WPVIP-Content-Gates-Declared:` empty: one copy for everyone |
+| `curl -s -b 'vip-go-seg=vc-v1__crawlers-search_--_1' http://localhost:8888/gated-article/` | Full article, `content-gates-gated-1` class, JSON-LD in the footer, no `Set-Cookie` |
+| `curl -si -b 'vip-go-seg=vc-v1__metered-articles_--_open' http://localhost:8888/metered-article/` | `METERED-BODY` and `X-WPVIP-Content-Gates-Meter: metered-articles; id=…; limit=3; period=2592000`; with `wall`, `METERED-WALL` |
+| Deactivate `subscriber` on Settings > Content Gates | `content_gates_purge_all` fires (the site purge on VIP); subscribers see the gate until reactivation |
+
+The meter counting down across views is the worker's job on hits and
+misses alike; `npm run test:edge` shows it in `sequence.test.ts`.
 
 ## Commands
 
@@ -82,11 +83,11 @@ Things to try, with the simulator running:
 npm run env start | stop | destroy          # dev site (.wp-env.json)       :8888
 npm run env:tests start | stop | destroy    # tests site (.wp-env.tests.json) :8889
 npm run seed                                # (re)seed the dev site
-npm run edge:sim -- --origin http://localhost:8888 --port 8890 --verbose
 npm run build | start                       # editor script, once or watching
 npm run lint                                # PHPCS + PHPStan + ESLint
 npm run test:php                            # PHPUnit in the tests container
-npm run test:edge                           # Edge Worker logic and simulator, Node only
+npm run test:edge                           # Edge Worker logic, contract, and sequences, Node only
+npm run test:js                             # editor pure modules, Node only
 npm run test:e2e                            # Playwright against the tests site (seeds it)
 npm run edge:install                        # once: edge-workers/ dependencies
 npm run edge:build                          # regenerate crawlers-config.ts, then `vip edge-workers build` -> edge-workers/build/content-gates.wasm
@@ -116,10 +117,9 @@ npm run env run cli --env-cwd=wp-content/plugins/content-gates wp content-gates 
 | `Vary: X-VIP-Go-Segmentation` | `Vary_Cache` is active (any group registered) |
 | `X-VIP-Go-Segmentation-Debug` | Full membership, `WP_DEBUG` only, from `Vary_Cache` |
 | `X-WPVIP-Content-Gates-Key` | The key the edge resolved the request to: the narrowed segmentation value, `none`, `bypass`, or `-` when phase 3 saw no phase 1 rewrite |
-| `X-Edge-Sim`, `X-Edge-Sim-Record` | Simulator only: hit status and the KV record |
 
-Comparing `X-VIP-Go-Segmentation-Debug` with `X-WPVIP-Content-Gates-Key`
-shows what the edge narrowed away.
+On a VIP application, comparing `X-VIP-Go-Segmentation-Debug` with
+`X-WPVIP-Content-Gates-Key` shows what the edge narrowed away.
 
 ## When something misbehaves
 
@@ -127,9 +127,6 @@ shows what the edge narrowed away.
   Undeclared reads log `_doing_it_wrong()` notices naming the segment.
 - `wp content-gates declared <post_id> --recompute` recomputes a post's
   stored set from its blocks.
-- `curl -s http://localhost:8890/__edge/stats` and
-  `curl -X POST http://localhost:8890/__edge/reset` inspect and clear the
-  simulator.
 - Playwright failures keep a trace, video, and `error-context.md` under
   `artifacts/test-results/`; open with `npx playwright show-trace`.
 
@@ -143,5 +140,6 @@ shows what the edge narrowed away.
   container; that site must already carry the seed.
 - The editor script must be built (`npm run build`) or the Group block has
   no Segments control; the admin shows a notice when it is missing.
-- The simulator is a stand-in for WPVIP. Its variances are listed in
-  [edge-worker.md](edge-worker.md).
+- Nothing local emulates WPVIP's edge. The edge suites test the worker
+  under a stated contract; [known-limitations.md](known-limitations.md)
+  lists what only a VIP application can show.

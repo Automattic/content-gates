@@ -24,8 +24,7 @@ Shared AssemblyScript modules go in `lib/` and can be imported from any worker.
 | --- | --- |
 | `workers/content-gates/` | The Content Gates worker: `worker.json` and the SDK entry `assembly/index.ts`. The only code that talks to the SDK. |
 | `lib/` | The worker's logic as pure modules that compile under AssemblyScript **and** run under Node. `crawlers-config.ts` is generated from `../config/crawlers.json`. |
-| `sim/` | A local page-cache emulator around the same modules (`npm run edge:sim` from the plugin root). |
-| `tests/` | `node:test` suites for the modules and the simulator (`npm run test:edge`). |
+| `tests/` | `node:test` suites for the modules, the edge contract, and multi-request sequences through an in-memory edge (`npm run test:edge`). |
 | `scripts/crawlers-config.mjs` | Regenerates `lib/crawlers-config.ts`; `npm run edge:build` runs it before `vip edge-workers build`. |
 
 `worker.json` has no `location`, so the worker runs on every request: phase 1

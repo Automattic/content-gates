@@ -2,8 +2,8 @@
  * Crypto injection point.
  *
  * The pure modules never import a hash implementation. The worker entry
- * passes the SDK's host-executed `sha256` / `hmacSha256Str`, and the
- * simulator and tests pass `node:crypto`. Both produce lowercase hex.
+ * passes the SDK's host-executed `sha256` / `hmacSha256Str`, and the tests
+ * pass `node:crypto`. Both produce lowercase hex.
  *
  * Portability rules: see segmentation.ts. Function-typed fields are the one
  * form of "callback" both runtimes accept without closures.

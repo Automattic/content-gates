@@ -39,8 +39,8 @@ module.exports = [
 		// edge-workers/ is the VIP CLI's project layout (`vip edge-workers
 		// init`). It is its own npm package: the SDK and AssemblyScript are
 		// its dependencies, not the plugin's, so the rule resolves imports
-		// against both manifests. The simulator and tests under it are Node
-		// code that imports only node: builtins and the shared modules.
+		// against both manifests. The tests under it are Node code that
+		// imports only node: builtins and the shared modules.
 		files: [ 'edge-workers/**/*.{ts,mjs}' ],
 		rules: {
 			'import/no-extraneous-dependencies': [

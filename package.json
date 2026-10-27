@@ -21,7 +21,6 @@
 		"analyze:php": "composer analyze",
 		"edge:install": "npm --prefix edge-workers ci",
 		"edge:build": "node edge-workers/scripts/crawlers-config.mjs && npx --yes --package=@automattic/vip@4.1.6 vip edge-workers build --all --path edge-workers",
-		"edge:sim": "node edge-workers/sim/cli.ts",
 		"test:php": "wp-env --config=.wp-env.tests.json run cli --env-cwd=wp-content/plugins/content-gates vendor/bin/phpunit",
 		"test:edge": "node --test 'edge-workers/tests/*.test.ts'",
 		"test:js": "node --test 'tests/js/*.test.ts'",

@@ -1,10 +1,10 @@
 /**
- * Cookie header helpers shared by the worker and the simulator.
+ * Cookie header helpers shared by the worker and its Node tests.
  *
  * The SDK has a `Cookies` reader, but it is AssemblyScript-only and
  * read-only. The worker also has to rewrite the `Cookie` header it forwards
- * to origin, and the simulator needs identical behaviour under Node, so the
- * few operations needed live here, dependency-free.
+ * to origin, and the tests need identical behaviour under Node, so the few
+ * operations needed live here, dependency-free.
  *
  * Portability rules: see segmentation.ts.
  */

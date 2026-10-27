@@ -2,8 +2,8 @@
  * Regenerate edge-workers/lib/crawlers-config.ts from config/crawlers.json,
  * so the worker compiles in exactly the crawler list the plugin ships.
  *
- * The generated file is committed so `npm run test:edge` and the simulator
- * work without a build; `tests/crawlers.test.ts` fails when it is stale.
+ * The generated file is committed so `npm run test:edge` works without a
+ * build; `tests/crawlers.test.ts` fails when it is stale.
  * Compilation itself is `vip edge-workers build`, which owns the `asc`
  * flags (see edge-workers/package.json). `npm run edge:build` at the plugin
  * root runs this script and then that build.

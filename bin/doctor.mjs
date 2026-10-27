@@ -155,7 +155,7 @@ const nodeMajor = Number( process.versions.node.split( '.' )[ 0 ] );
 check(
 	nodeMajor >= 22,
 	`node ${ process.versions.node }`,
-	`node ${ process.versions.node } (need >= 22 for the edge simulator and its tests)`
+	`node ${ process.versions.node } (need >= 22 for the Node test suites)`
 );
 const php = run( 'php', [ '-r', 'echo PHP_VERSION;' ] );
 check(
@@ -200,7 +200,7 @@ check(
 check(
 	existsSync( path.join( ROOT, 'edge-workers/node_modules/.bin/asc' ) ),
 	'edge-workers/node_modules/ present (SDK + AssemblyScript)',
-	'edge-workers/node_modules/ missing: edge:build cannot compile (run npm run edge:install); tests and the simulator do not need it',
+	'edge-workers/node_modules/ missing: edge:build cannot compile (run npm run edge:install); the tests do not need it',
 	false
 );
 
@@ -236,15 +236,6 @@ for ( const { label, port } of PORTS ) {
 			`:${ port } is held by something else. Playwright would silently reuse it.`
 		);
 	}
-}
-
-console.log( '\nEdge simulator' );
-if ( await portInUse( 8890 ) ) {
-	ok( ':8890 answers (npm run edge:sim, or something else)' );
-} else {
-	console.log(
-		'  off   not running; `npm run edge:sim` puts it in front of the dev site on :8890'
-	);
 }
 
 console.log( '\nPlaywright' );

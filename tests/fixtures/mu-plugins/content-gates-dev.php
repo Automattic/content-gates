@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Content Gates Dev Provider
- * Description: Local-only entitlement provider, demo content seeder, and edge-simulator purge bridge. NEVER deploy.
+ * Description: Local-only entitlement provider and demo content seeder. NEVER deploy.
  *
  * Mapped into both wp-env sites as an mu-plugin (`mappings` in .wp-env.json
  * and .wp-env.tests.json). It stands in for a real provider so humans and
@@ -19,9 +19,6 @@
  *    calls a defect in provider code; it is a local diagnostic, not a
  *    provider, and nothing should copy it.
  * 3. `wp content-gates-dev seed` creates demo segments and posts.
- * 4. Purge bridge: the plugin's `content_gates_purge_all` action and post
- *    saves are forwarded to the local edge simulator's purge endpoint, the
- *    way WPVIP purges URLs on save.
  *
  * Safety: the file is inert unless `WP_ENVIRONMENT_TYPE` is `local`, and it
  * stays out of PHPUnit so the suite sees the plugin's defaults.
@@ -51,28 +48,9 @@ if ( function_exists( 'tests_add_filter' ) ) {
 
 const DEMO_PARAM = 'content_gates_demo';
 
-/**
- * Base URL of the local edge simulator as seen from inside the container.
- */
-function edge_sim_url(): string {
-	if ( defined( 'CONTENT_GATES_DEV_EDGE_URL' ) ) {
-		return (string) constant( 'CONTENT_GATES_DEV_EDGE_URL' );
-	}
-
-	// The e2e purge-bridge spec points the site at its in-process simulator.
-	$option = get_option( 'content_gates_dev_edge_url' );
-	if ( is_string( $option ) && '' !== $option ) {
-		return $option;
-	}
-
-	return 'http://host.docker.internal:8890';
-}
-
 add_action( 'rest_api_init', __NAMESPACE__ . '\\register_rest_route' );
 add_action( 'send_headers', __NAMESPACE__ . '\\demo_no_store', 1 );
 add_action( 'wp_footer', __NAMESPACE__ . '\\render_demo_box' );
-add_action( 'content_gates_purge_all', __NAMESPACE__ . '\\purge_everything' );
-add_action( 'save_post', __NAMESPACE__ . '\\purge_post_urls', 20, 2 );
 
 /**
  * Register the local-only membership route.
@@ -155,51 +133,6 @@ function render_demo_box(): void {
 	echo '</ul>';
 	echo '<p><a href="' . esc_url( home_url( '/segments/' ) ) . '" style="color:#9cf">Change membership</a> (example provider)</p>';
 	echo '</div>';
-}
-
-/**
- * Forward a global purge to the edge simulator.
- *
- * @param string $reason Why the purge was requested.
- */
-function purge_everything( string $reason ): void {
-	call_edge_sim( '/__edge/purge', array( 'reason' => $reason ) );
-}
-
-/**
- * Forward the URL purge WPVIP performs on save: the post, the home page, and the feed.
- *
- * @param int      $post_id Post ID.
- * @param \WP_Post $post    Post.
- */
-function purge_post_urls( int $post_id, \WP_Post $post ): void {
-	if ( 'publish' !== $post->post_status || ! is_post_type_viewable( $post->post_type ) ) {
-		return;
-	}
-
-	foreach ( array( get_permalink( $post_id ), home_url( '/' ), get_feed_link() ) as $url ) {
-		if ( is_string( $url ) ) {
-			call_edge_sim( '/__edge/purge', array( 'url' => wp_make_link_relative( $url ) ) );
-		}
-	}
-}
-
-/**
- * Fire-and-forget POST to the simulator. Errors are ignored: the simulator may not be running.
- *
- * @param string               $path Endpoint path.
- * @param array<string, mixed> $body JSON body.
- */
-function call_edge_sim( string $path, array $body ): void {
-	wp_remote_post(
-		edge_sim_url() . $path,
-		array(
-			'timeout'  => 1,
-			'blocking' => false,
-			'headers'  => array( 'Content-Type' => 'application/json' ),
-			'body'     => (string) wp_json_encode( $body ),
-		)
-	);
 }
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
