@@ -1,0 +1,26 @@
+{
+	"_about": "The formats that cross the origin/edge boundary, pinned once. tests/unit/test-edge-contract.php proves origin emits and parses them; edge-workers/tests/contract.test.ts proves the worker parses and emits them. Change both sides together.",
+	"headers": {
+		"declared": "X-WPVIP-Content-Gates-Declared",
+		"meter": "X-WPVIP-Content-Gates-Meter",
+		"key": "X-WPVIP-Content-Gates-Key",
+		"edge_version": "X-WPVIP-Content-Gates-Edge",
+		"segmentation": "X-VIP-Go-Segmentation"
+	},
+	"declared": [
+		{ "groups": [ "subscriber", "donor" ], "header": "donor, subscriber", "record": "v1:donor,subscriber" },
+		{ "groups": [], "header": "", "record": "v1:" }
+	],
+	"meter": {
+		"group": "metered-articles",
+		"post_id": 123,
+		"limit": 5,
+		"period": 2592000,
+		"header": "metered-articles; id=123; limit=5; period=2592000"
+	},
+	"cookie": {
+		"name": "vip-go-seg",
+		"groups": { "subscriber": "1", "newsletter": "1", "metered-articles": "open" },
+		"value": "vc-v1__metered-articles_--_open---__newsletter_--_1---__subscriber_--_1"
+	}
+}
