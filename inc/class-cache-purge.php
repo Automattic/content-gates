@@ -16,7 +16,10 @@ use Automattic\VIP\ContentGates\Segments\Segment;
  *
  * Post saves purge their own URLs (confirmed by VIP, 2026-10-21). Segment
  * activation, deactivation, and meter reconfiguration are site-wide and
- * need every stored variant gone. On WPVIP the default listener calls the
+ * need every stored variant gone. Creation and rename need none: a new
+ * key is in no cookie or stored set yet, and a rename changes no key.
+ * Crawler sync reaches here through the same status-change path when it
+ * deactivates a removed segment. On WPVIP the default listener calls the
  * cache manager's site purge; elsewhere the action is the extension point
  * (the local edge simulator fixture listens to it).
  *
@@ -42,7 +45,6 @@ final class Cache_Purge {
 	 */
 	public function register(): void {
 		add_action( 'content_gates_segment_changed', array( $this, 'on_segment_changed' ), 10, 2 );
-		add_action( 'content_gates_crawlers_synced', array( $this, 'on_crawlers_synced' ) );
 		add_action( 'content_gates_purge_all', array( $this, 'purge_site' ) );
 	}
 
@@ -60,17 +62,6 @@ final class Cache_Purge {
 		}
 
 		$this->request( sprintf( 'segment %s %s', $segment->key, $change ) );
-	}
-
-	/**
-	 * Crawler segment removal deactivates a segment: purge.
-	 *
-	 * @since 0.1.0
-	 *
-	 * @param string[] $changed Keys that changed.
-	 */
-	public function on_crawlers_synced( array $changed ): void {
-		$this->request( 'crawler segments synced: ' . implode( ', ', $changed ) );
 	}
 
 	/**

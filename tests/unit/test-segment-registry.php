@@ -271,9 +271,11 @@ final class Test_Segment_Registry extends Content_Gates_Test_Case {
 	 * Crawler segments are mirrored from config/crawlers.json as read-only, active records.
 	 */
 	public function test_crawler_sync_mirrors_config(): void {
+		$reasons = $this->capture_purges();
 		$changed = $this->plugin()->segments()->sync_crawlers();
 		$this->assertContains( 'crawlers-search', $changed );
 		$this->assertContains( 'crawlers-ai', $changed );
+		$this->assertCount( 0, $reasons(), 'Adding segments purges nothing: no cookie or stored set carries them yet.' );
 
 		$this->new_request();
 		$search = $this->plugin()->segments()->resolve( 'crawlers-search' );
@@ -316,6 +318,7 @@ final class Test_Segment_Registry extends Content_Gates_Test_Case {
 			)
 		);
 
+		$reasons  = $this->capture_purges();
 		$registry = new Segment_Registry( new \Automattic\VIP\ContentGates\Segments\Crawler_Config( $file ) );
 		$changed  = $registry->sync_crawlers();
 		unlink( $file ); // phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- Test fixture.
@@ -325,6 +328,7 @@ final class Test_Segment_Registry extends Content_Gates_Test_Case {
 		$this->assertInstanceOf( Segment::class, $ai );
 		$this->assertFalse( $ai->active );
 		$this->assertTrue( $ai->crawler );
+		$this->assertCount( 1, $reasons(), 'Deactivation purges once, through the status-change path.' );
 	}
 
 	/**

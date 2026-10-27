@@ -31,7 +31,7 @@ place and calls its `register()` method. The boot order is the order below.
 | `Rendering\Content_Meta` | `inc/rendering/class-content-meta.php` | `save_post`, `rest_pre_insert_{type}` | Computes a post's declared set at save time into `_content_gates_declared`; rejects unknown keys on REST saves. |
 | `Rendering\Excerpt_Guard` | `inc/rendering/class-excerpt-guard.php` | `get_the_excerpt` 9 and 11 | Builds auto-excerpts from content with withheld Groups removed. |
 | `Rendering\Structured_Data` | `inc/rendering/class-structured-data.php` | `wp_footer` | Paywall JSON-LD on crawler variants of gated singular posts, from the count of Groups the render marked. |
-| `Cache_Purge` | `inc/class-cache-purge.php` | `content_gates_segment_changed`, `content_gates_crawlers_synced`, `content_gates_purge_all` | Requests one site-wide purge per request on configuration changes. |
+| `Cache_Purge` | `inc/class-cache-purge.php` | `content_gates_segment_changed`, `content_gates_purge_all` | Requests one site-wide purge per request on configuration changes. |
 | `REST\Segments_Controller` | `inc/rest/class-segments-controller.php` | `rest_api_init` | `GET content-gates/v1/segments` for the editor, `edit_posts` only. |
 | `Admin\Segment_Admin` | `inc/admin/class-segment-admin.php` | `admin_menu`, `admin_post_*` | Settings > Content Gates. |
 | `Admin\Edge_Notice` | `inc/admin/class-edge-notice.php` | `init`, `admin_notices` | Version skew between the plugin and the Edge Worker. |
