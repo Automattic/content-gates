@@ -138,6 +138,30 @@ final class Test_REST extends Content_Gates_Test_Case {
 	}
 
 	/**
+	 * When another handler serves the response itself, the set is closed and the header sent there.
+	 */
+	public function test_served_elsewhere_still_closes_and_sends_header(): void {
+		$this->create_segment( 'Subscriber' );
+		$post_id = $this->create_gated_post( array( 'subscriber' ) );
+		$this->become_reader( array() );
+		add_filter(
+			'rest_pre_serve_request',
+			static function ( bool $served ): bool {
+				unset( $served );
+				echo (string) wp_json_encode( array( 'served' => 'elsewhere' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON body of a test handler.
+				return true;
+			},
+			5
+		);
+
+		$data = $this->serve( "/wp/v2/posts/{$post_id}" );
+
+		$this->assertSame( 'elsewhere', $data['served'] );
+		$this->assertTrue( $this->plugin()->declared()->is_closed() );
+		$this->assertSame( 'subscriber', Headers::last( Declared_Set::HEADER_DECLARED ) );
+	}
+
+	/**
 	 * The segments route needs edit_posts.
 	 */
 	public function test_segments_route_requires_authentication(): void {

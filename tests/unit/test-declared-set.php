@@ -200,6 +200,25 @@ final class Test_Declared_Set extends Content_Gates_Test_Case {
 	}
 
 	/**
+	 * Each declared meter gets its own header, in declared-set order.
+	 */
+	public function test_one_meter_header_per_meter(): void {
+		$this->create_meter( 'Metered articles', 5, 2592000 );
+		$this->create_meter( 'Premium meter', 2, 86400 );
+		$post_id = $this->create_gated_post( array( 'premium-meter', 'metered-articles' ) );
+
+		$this->request_post( $post_id );
+
+		$this->assertSame(
+			array(
+				"metered-articles; id={$post_id}; limit=5; period=2592000",
+				"premium-meter; id={$post_id}; limit=2; period=86400",
+			),
+			Headers::values( Declared_Set::HEADER_METER )
+		);
+	}
+
+	/**
 	 * Feeds declare the meter but send no meter header: a feed is not an article view.
 	 */
 	public function test_no_meter_header_on_feed(): void {

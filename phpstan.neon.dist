@@ -9,6 +9,9 @@ parameters:
 	excludePaths:
 		# Verbatim upstream copy of WPVIP's Vary_Cache; analyzed as a scanned file only.
 		- inc/platform/vendor/class-vary-cache.php
+		# Runtime stand-ins for WP_CLI; PHPStan reads tests/phpstan/wp-cli-stubs.php instead.
+		- tests/unit/fake-wp-cli.php
+		- tests/unit/fake-wp-cli-utils.php
 	scanFiles:
 		- vendor/php-stubs/wordpress-tests-stubs/wordpress-tests-stubs.php
 		- tests/phpstan/wp-cli-stubs.php
