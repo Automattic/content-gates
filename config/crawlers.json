@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"segments": {
+		"crawlers-search": {
+			"label": "Search crawlers",
+			"user_agents": [ "Googlebot", "bingbot", "DuckDuckBot", "Applebot", "YandexBot" ]
+		},
+		"crawlers-ai": {
+			"label": "AI crawlers",
+			"user_agents": [ "GPTBot", "ChatGPT-User", "OAI-SearchBot", "ClaudeBot", "Claude-User", "PerplexityBot", "Google-Extended", "CCBot" ]
+		}
+	}
+}

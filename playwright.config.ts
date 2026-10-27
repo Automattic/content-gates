@@ -4,7 +4,9 @@ import { defineConfig, devices } from '@playwright/test';
  * Base URL of the wp-env TESTS site.
  *
  * Pass WP_BASE_URL when autoPort moved the site off :8889, or when another
- * project's wp-env holds :8889 (run `npm run doctor` to find out).
+ * project's wp-env holds :8889 (run `npm run doctor` to find out). The
+ * seed still runs against our container unless CONTENT_GATES_E2E_EXTERNAL=1
+ * says the target is not ours; see tests/e2e/global-setup.ts.
  */
 const baseURL = process.env.WP_BASE_URL ?? 'http://localhost:8889';
 

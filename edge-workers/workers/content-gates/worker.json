@@ -1,0 +1,5 @@
+{
+	"name": "content-gates",
+	"entry": "assembly/index.ts",
+	"on_failure": "error"
+}

@@ -30,26 +30,33 @@ Tooling, all pinned in `composer.json` / `package.json`:
   Playwright with `@wordpress/e2e-test-utils-playwright`
   (`playwright.config.ts`).
 
-Support floor: WordPress 7.0+, PHP 8.2+, Node 20+ (`.nvmrc` pins 24).
-wp-env runs PHP 8.3 and latest WordPress core. See `spec/decisions.md`.
+Support floor: WordPress 7.0+, PHP 8.2+, Node 22+ (`.nvmrc` pins 24; the
+Node test suites run `.ts` files with Node's built-in type stripping, and
+the VIP Edge Worker SDK needs 22.19+). wp-env runs PHP 8.3
+and latest WordPress core. See `spec/decisions.md`.
 
 ```bash
 npm run lint          # lint:php + analyze:php + lint:js
 npm run lint:php      # composer lint   (PHPCS)
 npm run analyze:php   # composer analyze (PHPStan)
-npm run lint:js       # wp-scripts lint-js
+npm run lint:js       # wp-scripts lint-js (src/, edge-workers/, tests/e2e/, bin/)
 composer lint:fix     # PHPCBF
+npm run build         # editor script: src/ -> build/ (gitignored; the plugin enqueues build/index.js)
+npm run edge:install  # once: edge-workers/ dependencies (VIP edge SDK, AssemblyScript), its own npm package
+npm run edge:build    # Edge Worker: regenerate lib/crawlers-config.ts, then `vip edge-workers build` -> edge-workers/build/content-gates.wasm (gitignored)
 ```
 
-No build step exists yet. Client-side code will live in `src/` and build
-with `wp-scripts build` once the editor UI is scaffolded (TODO).
-
 Class autoloading follows WordPress file naming:
-`Automattic\VIP\ContentGates\Providers\Static_Provider` lives at
-`inc/providers/class-static-provider.php` (see `autoload()` in
+`Automattic\VIP\ContentGates\Providers\Newspack_Bridge` lives at
+`inc/providers/class-newspack-bridge.php` (see `autoload()` in
 `content-gates.php`). Tests use the core `test-*.php` convention.
 
-Keep development and test data separate. Do not run database-resetting suites against a shared environment concurrently. Local edge simulation should follow WPVIP cache behavior. Document and warn about any variances.
+`inc/platform/vendor/class-vary-cache.php` is a verbatim copy of WPVIP's
+`Vary_Cache`, loaded only when `WP_ENVIRONMENT_TYPE` is `local` and the
+platform copy is absent. It is excluded from PHPCS and analyzed as a
+scanned file only. Re-copy from upstream to update; never edit it.
+
+Keep development and test data separate. Do not run database-resetting suites against a shared environment concurrently. There is no local edge emulation: edge behavior is tested as a contract (`tests/fixtures/edge-contract.json`, `edge-workers/tests/`), and platform behavior is observed only on a VIP application.
 
 ## Coding standards
 
@@ -73,7 +80,7 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - Cache hit rate must remain within 5 percentage points of the baseline on the same URLs with a comparable workload. Save the workload, versions, and results.
 - Check crawler structured data with Google's Rich Results Test. Record all leak-surface findings and permitted limitations.
 - Before completion, run applicable build, lint, analysis, and test checks. Report failures and skipped checks; missing tooling is not a pass.
-- `npm run doctor` is the environment health check. TODO: Add safe debug logging and reproducible benchmark commands. Record confirmed traps with their regression tests.
+- `npm run doctor` is the environment health check. TODO: reproducible benchmark commands for the hit-rate target. Confirmed traps live under Gotchas with their regression tests.
 - Organize the work in atomic commits that are easy for humans to review.
 - Sign commits; ensure local Git configuration does not disable signing. Never bypass checks merely to obtain a passing result.
 
@@ -82,24 +89,35 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `content-gates.php`: plugin entrypoint, constants, autoloader
 - `artifacts/`: gitignored Playwright output and auth storage state
 - `bin/`: repo scripts (`doctor.mjs`)
-- `config/`: data shared by the plugin and the Edge Worker (`crawlers.json`; not scaffolded yet)
-- `edge/`: VIP-managed Edge Worker source (AssemblyScript; not scaffolded yet)
-- `docs/`: docs for human users, including the public hook reference
-- `inc/`: server PHP (`class-plugin.php` wires components to hooks)
+- `config/`: data shared by the plugin and the Edge Worker (`crawlers.json`)
+- `edge-workers/`: the VIP CLI edge-workers project (`vip edge-workers init` layout): `workers/content-gates/` (manifest + SDK entry), `lib/` (shared pure modules), `tests/` (Node tests: modules, the edge contract, sequences through an in-memory edge), `scripts/` (crawler config generator). Its own npm package: `npm run edge:install`
+- `docs/`: docs for humans and agents; start at `docs/README.md`
+- `examples/`: separate plugins that show how to integrate. `segment-provider/` is a toy provider: any reader picks their own segments at `/segments/`. Both wp-env configs map and activate it; it is never deployed
+- `inc/`: server PHP (`class-plugin.php` wires components to hooks; `docs/architecture.md` maps each class)
 - `spec/`: product specification
-- `src/`: browser code (TypeScript; not scaffolded yet)
+- `src/`: block editor code (TypeScript), built by `wp-scripts` into `build/`
 - `tests/`: ALL tests, fixtures, and test tooling
-  - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `test-*.php`)
-  - `tests/e2e/`: Playwright specs and `global-setup.ts`
-  - `tests/debugging/`: debugging/analysis tools
-- `.github/workflows/ci.yml`: static checks, PHPUnit, Playwright
+  - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `class-content-gates-test-case.php`, `test-*.php`)
+  - `tests/e2e/`: Playwright specs, `helpers.ts`, and `global-setup.ts` (seeds the tests site)
+  - `tests/js/`: `node --test` suites for the editor's pure modules
+  - `tests/fixtures/mu-plugins/`: the local-only demo provider and seeder, mapped into both wp-env sites
+  - `tests/fixtures/edge-contract.json`: the formats that cross the origin/edge boundary, read by PHPUnit and the edge suite
+  - `tests/phpstan/`: stubs for static analysis only
+  - `tests/debugging/`: debugging/analysis tools (none yet; its README says what belongs there)
+- `.github/workflows/ci.yml`: static checks, edge tests, PHPUnit, Playwright
 
 ## Setup (from a clean checkout)
 
 ```bash
 composer install          # PHP tooling (PHPCS/WPCS, PHPUnit 9 + polyfills)
 npm install               # JS tooling (@wordpress/scripts, wp-env, Playwright)
+npm run edge:install      # edge-workers/ tooling (VIP edge SDK, AssemblyScript); only needed for edge:build
+npm run setup             # build the editor script, start the dev site, seed demo data
 ```
+
+`docs/local-development.md` has the demo flows (join/leave segments at
+`/segments/` or with curl, crawler and meter walkthroughs, what each
+response header means).
 
 ## Environment
 
@@ -115,6 +133,12 @@ npm run env:tests start   # TESTS env (.wp-env.tests.json)  http://localhost:888
 `npm run env:tests` is `wp-env --config=.wp-env.tests.json`; any wp-env
 subcommand works after it (`stop`, `run cli wp ...`, `logs`, `destroy`).
 
+Both configs map `tests/fixtures/mu-plugins/` to `wp-content/mu-plugins`,
+so the demo provider and `wp content-gates-dev seed` exist in both sites
+(the fixture is inert outside `WP_ENVIRONMENT_TYPE=local` and inside
+PHPUnit). `npm run seed` seeds the dev site; `test:e2e` seeds the tests
+site itself.
+
 `autoPort` is on, so when a port is busy wp-env picks a free one and prints
 the URL it chose. Force ports with `WP_ENV_PORT`. Each config has its own
 work dir under `~/.wp-env` (`wp-env-content-gates-<hash>` and
@@ -125,6 +149,8 @@ independent — separate databases included. Personal overrides go in
 ## Testing
 
 ```bash
+npm run test:edge           # Edge Worker logic, contract, and sequences, Node only, no Docker
+npm run test:js             # Editor pure functions (src/options.ts, src/attributes.ts), Node only
 npm run test:php            # PHPUnit in the wp-env tests container
 npm run test:e2e            # Playwright E2E against the wp-env tests site
 ```
@@ -135,13 +161,20 @@ fast → slow (only the last two need wp-env):
 1. `npm run lint:php` and `npm run analyze:php`: PHPCS and PHPStan on the
    host. Catches standards, types, and undefined symbols in well under a
    second.
-2. `npm run lint:js`: ESLint over `bin/`, `tests/e2e/`, and
-   `playwright.config.ts`.
-3. `npm run test:php`: PHPUnit inside the tests-env `cli` container with the
-   WordPress test library. Covers hooks, providers, rendering, REST.
-4. `npm run test:e2e`: Playwright against the tests site. Covers response
-   bytes, cookies, cache behavior, admin UI. Starts the tests env if the
-   base URL does not answer.
+2. `npm run lint:js`: ESLint over `src/`, `edge-workers/`, `bin/`, `tests/e2e/`,
+   `tests/js/`, and `playwright.config.ts`. `npx tsc --noEmit` type-checks `src/`.
+3. `npm run test:edge` and `npm run test:js`: `node --test` over the pure
+   edge modules, the edge contract fixture, and multi-request sequences
+   through an in-memory edge (`edge-workers/tests/edge-harness.ts`), and
+   over the editor's pure modules (`tests/js/`). Seconds, no Docker.
+4. `npm run test:php`: PHPUnit inside the tests-env `cli` container with the
+   WordPress test library. Covers segments, membership, declared set,
+   rendering, excerpts, REST, admin page and switcher, edge notice, WP-CLI
+   (through a recording `WP_CLI` fake), Newspack bridge.
+5. `npm run test:e2e`: Playwright against the tests site. Covers response
+   bytes on page/feed/REST, cookies, the admin page, the editor control,
+   and the example provider. Starts the tests env if the base URL does not
+   answer; needs `npm run build` first for the editor spec.
 
 Single-test loops: Don't rerun a whole suite while iterating on one
 failure:
@@ -158,8 +191,11 @@ PHPUnit wipes the tests-env database, killing every in-flight spec
 Beware: if ANOTHER project's wp-env holds `:8889`, Playwright's
 webServer check sees the port alive and silently reuses that foreign
 site (wp-env credentials are identical everywhere, so auth even
-succeeds). Always pass `WP_BASE_URL` in that case (`npm run doctor`
-detects this arrangement and prints the right URL).
+succeeds). Start our tests env instead (autoPort picks a free port) and
+pass the `WP_BASE_URL` that `npm run doctor` prints. `WP_BASE_URL` only
+moves the URL; `global-setup.ts` still seeds our container through
+wp-env. Only `CONTENT_GATES_E2E_EXTERNAL=1` skips the seed, for a site
+that is not our container and already carries it.
 
 ## Diagnostics
 
@@ -176,8 +212,17 @@ They exist so a failure is observable without re-instrumenting:
 - **Playwright traces**: every failure keeps a trace, video, and
   `error-context.md` under `artifacts/test-results/`. Open with
   `npx playwright show-trace <trace.zip>`.
-- TODO: Add cache/cookie/segment inspection tools under `tests/debugging/`
-  once Phase B exists.
+- **Diagnostic response headers**, always on: origin's
+  `X-WPVIP-Content-Gates-Declared` (what the URL may read) and the worker's
+  `X-WPVIP-Content-Gates-Key` (the key the request resolved to, phase 3,
+  stored with the copy; `none`, `bypass`, or `-` when phase 1's rewrite was
+  not visible). Edge Workers have no logs; `docs/edge-worker.md` has the
+  reading table.
+- **`?content_gates_demo=1`** on any dev front-end page shows the declared
+  set and the raw membership, with a link to `/segments/` (local only, never
+  cached).
+- **`wp content-gates list`** and **`wp content-gates declared <id>`** show
+  the segment table and a post's stored declared set from the shell.
 
 ## Gotchas
 
@@ -203,3 +248,41 @@ Each of these has bitten. Don't rediscover them.
   install. Never remove the pin to make a local `composer update` pass.
 - **`WP_TESTS_DIR` is only set inside wp-env.** Running `vendor/bin/phpunit`
   on the host fails fast with a message pointing to `npm run test:php`.
+- **Core fires `send_headers` before the `wp` action.** The spec originally
+  said otherwise. The plugin finalizes the declared set at the end of `wp`;
+  membership writes close at `send_headers`. `spec/decisions.md` records it.
+- **PHPUnit restores hook snapshots between tests.** `WP_UnitTestCase`
+  snapshots `$wp_filter` in `set_up()` and restores it in `tear_down()`, so
+  a per-request component instance from an earlier test comes back hooked
+  next to the fresh one. `Content_Gates_Test_Case::new_request()` scrubs
+  callbacks bound to those classes before `Plugin::reset_request_state()`.
+  Symptom when this is missing: the second test in a class withholds content
+  that the first test showed.
+- **The test library serves REST through `Spy_REST_Server`.** It buffers the
+  body into `$server->sent_body`; `ob_start()` around `serve_request()`
+  captures nothing. `Test_REST::serve()` reads the spy.
+- **`header()` and `setrawcookie()` warn under PHPUnit** because the runner
+  already wrote to stdout. `Vary_Cache` calls both at `send_headers`. The
+  test base chains an error handler that drops only
+  "Cannot modify header information".
+- **Core's `excerpt_remove_blocks()` unwraps `core/group`.** A gated Group's
+  inner blocks render into auto-excerpts without `pre_render_block` ever
+  seeing the Group. `Excerpt_Guard` exists for this;
+  `Test_Excerpt_Guard::test_core_excerpt_leaks_without_guard` proves the
+  leak so nobody removes the guard.
+- **The post factory sets a manual excerpt.** `WP_UnitTest_Factory_For_Post`
+  fills `post_excerpt`, which bypasses excerpt generation. The test base's
+  `create_post()` clears it.
+- **`register_rest_route()` outside `rest_api_init` is `_doing_it_wrong`.**
+  Tests that need a throwaway route register it on the live server with
+  `rest_get_server()->register_route()`.
+- **`node --test <directory>` fails on Node 22 and 24** with "Cannot find
+  module .../edge-workers/tests"; only Node 26 expands a directory argument. The
+  `test:edge` script passes a quoted glob (`'edge-workers/tests/*.test.ts'`), which
+  Node itself expands on every supported version. Do not "simplify" it back
+  to the directory form: CI runs the `.nvmrc` version and would fail.
+- **Pure edge modules must stay inside the AssemblyScript/TypeScript
+  intersection.** No `Map`, closures over locals, `for...of`, spread,
+  `===` on strings, or 64-bit integers. `npm run edge:build` and
+  `npm run test:edge` both have to pass; one without the other proves
+  nothing.
