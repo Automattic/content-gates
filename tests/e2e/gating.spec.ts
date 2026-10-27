@@ -201,8 +201,10 @@ test.describe( 'gating at origin', () => {
 		expect( body ).toContain( 'id="content-gates-paywall"' );
 		expect( body ).toContain( '"isAccessibleForFree":false' );
 		expect( body ).toContain( '"cssSelector":".content-gates-gated-1"' );
-		// The crawler is not a subscriber, so the not-in prompt still renders.
+		// The crawler is not a subscriber, so the not-in prompt still renders,
+		// as free content: no marker, no second hasPart.
 		expect( body ).toContain( SEED.subscribePrompt );
+		expect( body ).not.toContain( 'content-gates-gated-2' );
 		await ctx.dispose();
 	} );
 

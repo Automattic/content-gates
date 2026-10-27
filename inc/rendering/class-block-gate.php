@@ -31,8 +31,10 @@ use WP_HTML_Tag_Processor;
  * behind. When access is allowed the block renders normally, so an author's
  * core visibility settings still apply.
  *
- * On the crawler variant each rendered gated Group gets a marker class so the
- * paywall structured data can point at it.
+ * On the crawler variant each rendered paywalled Group gets a marker class so
+ * the paywall structured data can point at it. Only `in` Groups are
+ * paywalled: a `not-in` Group is what readers outside the segment see, so
+ * for the crawler it is the free part, not the gated one.
  *
  * @since 0.1.0
  */
@@ -140,7 +142,7 @@ final class Block_Gate {
 	}
 
 	/**
-	 * Number the gated Groups that render, in document order. Filter callback for `render_block_data`.
+	 * Number the paywalled Groups that render, in document order. Filter callback for `render_block_data`.
 	 *
 	 * Runs after `pre_render_block`, so withheld Groups are never numbered.
 	 * Author-hidden Groups are skipped too, because core drops them after
@@ -154,7 +156,7 @@ final class Block_Gate {
 	 * @return array<mixed>
 	 */
 	public function stamp_index( array $parsed_block ): array {
-		if ( array() === self::segments_of( $parsed_block ) || self::is_author_hidden( $parsed_block ) ) {
+		if ( ! self::is_paywalled( $parsed_block ) ) {
 			return $parsed_block;
 		}
 
@@ -180,7 +182,7 @@ final class Block_Gate {
 	public function mark_for_crawlers( string $content, array $block, WP_Block $instance ): string {
 		unset( $instance );
 
-		if ( array() === self::segments_of( $block ) || '' === $content || ! $this->is_crawler() ) {
+		if ( ! self::is_paywalled( $block ) || '' === $content || ! $this->is_crawler() ) {
 			return $content;
 		}
 
@@ -245,7 +247,7 @@ final class Block_Gate {
 	}
 
 	/**
-	 * Count of gated Groups rendered so far for a post.
+	 * Count of paywalled Groups rendered so far for a post.
 	 *
 	 * @since 0.1.0
 	 *
@@ -253,6 +255,17 @@ final class Block_Gate {
 	 */
 	public function rendered_count( int $post_id ): int {
 		return $this->rendered_index[ $post_id ] ?? 0;
+	}
+
+	/**
+	 * Whether a Group is paywalled: gated in `in` mode and not author-hidden.
+	 *
+	 * @param array<mixed> $block Parsed block.
+	 */
+	private static function is_paywalled( array $block ): bool {
+		return array() !== self::segments_of( $block )
+			&& self::MODE_IN === self::mode_of( $block )
+			&& ! self::is_author_hidden( $block );
 	}
 
 	/**

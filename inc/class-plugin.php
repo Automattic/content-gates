@@ -298,7 +298,7 @@ final class Plugin {
 		remove_filter( 'render_block_' . Block_Gate::BLOCK, array( $this->gate, 'mark_for_crawlers' ), 10 );
 		remove_filter( 'get_the_excerpt', array( $this->excerpt_guard, 'build' ), 9 );
 		remove_filter( 'get_the_excerpt', array( $this->excerpt_guard, 'restore' ), 11 );
-		remove_action( 'wp_head', array( $this->structured_data, 'print_json_ld' ), 10 );
+		remove_action( 'wp_footer', array( $this->structured_data, 'print_json_ld' ), 10 );
 
 		$this->segments->flush();
 		$this->cache_purge->reset();

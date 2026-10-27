@@ -220,7 +220,8 @@ final class Test_Block_Gate extends Content_Gates_Test_Case {
 		$post_id = $this->create_post(
 			array(
 				'post_content' => $this->gated_group( array( 'subscriber', 'crawlers-search' ), $this->paragraph( 'FIRST' ) )
-					. $this->gated_group( array( 'subscriber' ), $this->paragraph( 'SECOND' ) ),
+					. $this->gated_group( array( 'subscriber' ), $this->paragraph( 'SECOND' ) )
+					. $this->gated_group( array( 'subscriber' ), $this->paragraph( 'PROMPT' ), Block_Gate::MODE_NOT_IN ),
 			)
 		);
 
@@ -231,7 +232,9 @@ final class Test_Block_Gate extends Content_Gates_Test_Case {
 		$this->assertStringContainsString( 'FIRST', $crawler );
 		$this->assertStringNotContainsString( 'SECOND', $crawler, 'The crawler is not a subscriber.' );
 		$this->assertStringContainsString( 'content-gates-gated content-gates-gated-1', $crawler );
-		$this->assertStringNotContainsString( 'content-gates-gated-2', $crawler );
+		$this->assertStringNotContainsString( 'content-gates-gated-2', $crawler, 'The not-in prompt is free content, so it is not marked.' );
+		$this->assertStringContainsString( 'PROMPT', $crawler );
+		$this->assertSame( 1, $this->plugin()->gate()->rendered_count( $post_id ) );
 
 		$this->new_request();
 		$this->become_reader(

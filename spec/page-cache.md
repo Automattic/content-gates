@@ -390,7 +390,7 @@ X-WPVIP-Content-Gates-Edge: 3
 
 ### Structured data
 
-On a response where any crawler segment is `true`, the plugin wraps each rendered gated Group in a marker class and emits JSON-LD on singular posts with `isAccessibleForFree: false` and one `hasPart` entry per Group with a `cssSelector` for that class. Posts with no gated Groups emit nothing. The marker and JSON-LD are emitted only for crawler variants, so human responses carry no hint of which parts are gated.
+On a response where any crawler segment is `true`, the plugin wraps each rendered `in` Group in a marker class and emits JSON-LD on singular posts, after the content, with `isAccessibleForFree: false` and one `hasPart` entry per marked Group with a `cssSelector` for that class. A `not-in` Group is the free part shown to non-members, so it carries no marker and no `hasPart` (decided 2026-10-26). Posts with no paywalled Groups emit nothing. The marker and JSON-LD are emitted only for crawler variants, so human responses carry no hint of which parts are gated.
 
 ### Declarations
 

@@ -30,7 +30,7 @@ place and calls its `register()` method. The boot order is the order below.
 | `Rendering\Block_Gate` | `inc/rendering/class-block-gate.php` | `register_block_type_args`, `pre_render_block`, `render_block_data`, `render_block_core/group` | Registers the Group attributes, withholds Groups, numbers and marks gated Groups on crawler variants. |
 | `Rendering\Content_Meta` | `inc/rendering/class-content-meta.php` | `save_post`, `rest_pre_insert_{type}` | Computes a post's declared set at save time into `_content_gates_declared`; rejects unknown keys on REST saves. |
 | `Rendering\Excerpt_Guard` | `inc/rendering/class-excerpt-guard.php` | `get_the_excerpt` 9 and 11 | Builds auto-excerpts from content with withheld Groups removed. |
-| `Rendering\Structured_Data` | `inc/rendering/class-structured-data.php` | `wp_head` | Paywall JSON-LD on crawler variants of gated singular posts. |
+| `Rendering\Structured_Data` | `inc/rendering/class-structured-data.php` | `wp_footer` | Paywall JSON-LD on crawler variants of gated singular posts, from the count of Groups the render marked. |
 | `Cache_Purge` | `inc/class-cache-purge.php` | `content_gates_segment_changed`, `content_gates_crawlers_synced`, `content_gates_purge_all` | Requests one site-wide purge per request on configuration changes. |
 | `REST\Segments_Controller` | `inc/rest/class-segments-controller.php` | `rest_api_init` | `GET content-gates/v1/segments` for the editor, `edit_posts` only. |
 | `Admin\Segment_Admin` | `inc/admin/class-segment-admin.php` | `admin_menu`, `admin_post_*` | Settings > Content Gates. |
@@ -190,11 +190,12 @@ stripping any crawler value the browser sent. Origin treats the value like
 any other membership. A crawler segment is in the declared set only when an
 editor selected it on a Group (no auto-declaration since 2026-10-26), and
 `Block_Gate::is_crawler()` reads it through the declared set. On a crawler
-response to such a post every rendered gated Group gets the classes
+response to such a post every rendered `in` Group gets the classes
 `content-gates-gated content-gates-gated-{n}` (numbered in document order,
-per post) and `wp_head` prints JSON-LD with `isAccessibleForFree: false` and
-one `hasPart` per Group with the matching `cssSelector`. Human responses
-carry neither.
+per post) and `wp_footer` prints JSON-LD with `isAccessibleForFree: false`
+and one `hasPart` per marked Group with the matching `cssSelector`. A
+`not-in` Group is the free part the crawler sees, so it is neither marked
+nor listed. Human responses carry neither.
 
 ## Metering
 

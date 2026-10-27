@@ -9,7 +9,6 @@ declare( strict_types=1 );
 
 namespace Automattic\VIP\ContentGates\Rendering;
 
-use Automattic\VIP\ContentGates\Membership\Declared_Set;
 use WP_Post;
 
 /**
@@ -17,11 +16,11 @@ use WP_Post;
  *
  * Only crawler variants carry the markup and the marker classes, so human
  * responses give no hint of which parts are gated. The JSON-LD lists one
- * `hasPart` per gated Group that renders for the crawler, with a
- * `cssSelector` for the class `Block_Gate` adds to that Group.
+ * `hasPart` per paywalled Group that rendered for the crawler, with a
+ * `cssSelector` for the class `Block_Gate` added to that Group.
  *
- * `wp_head` runs before the content, so the Groups are counted here by
- * walking the saved blocks with the same decision the render will make.
+ * It prints on `wp_footer`, after the content, so the count is the one the
+ * render produced. Google reads JSON-LD anywhere in the document.
  *
  * @since 0.1.0
  */
@@ -40,7 +39,7 @@ final class Structured_Data {
 	 * @since 0.1.0
 	 */
 	public function register(): void {
-		add_action( 'wp_head', array( $this, 'print_json_ld' ) );
+		add_action( 'wp_footer', array( $this, 'print_json_ld' ) );
 	}
 
 	/**
@@ -54,11 +53,11 @@ final class Structured_Data {
 		}
 
 		$post = get_queried_object();
-		if ( ! $post instanceof WP_Post || array() === Declared_Set::stored_keys( $post->ID ) ) {
+		if ( ! $post instanceof WP_Post ) {
 			return;
 		}
 
-		$count = $this->count_rendered_groups( parse_blocks( $post->post_content ) );
+		$count = $this->gate->rendered_count( $post->ID );
 		if ( 0 === $count ) {
 			return;
 		}
@@ -85,37 +84,5 @@ final class Structured_Data {
 			"<script type=\"application/ld+json\" id=\"content-gates-paywall\">%s</script>\n",
 			wp_json_encode( $data, JSON_UNESCAPED_SLASHES ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON built from escaped scalars; wp_json_encode escapes `</`.
 		);
-	}
-
-	/**
-	 * Count gated Groups that will render, in the order the render numbers them.
-	 *
-	 * Mirrors `Block_Gate`: a withheld Group's subtree is skipped, an
-	 * author-hidden Group is skipped because it never renders, and a Group
-	 * inside a rendered Group is walked.
-	 *
-	 * @param array<mixed> $blocks Parsed blocks.
-	 */
-	private function count_rendered_groups( array $blocks ): int {
-		$count = 0;
-		foreach ( $blocks as $block ) {
-			if ( ! is_array( $block ) || Block_Gate::is_author_hidden( $block ) ) {
-				continue;
-			}
-
-			$keys = Block_Gate::segments_of( $block );
-			if ( array() !== $keys ) {
-				if ( $this->gate->should_withhold( $keys, Block_Gate::mode_of( $block ) ) ) {
-					continue;
-				}
-				++$count;
-			}
-
-			if ( isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-				$count += $this->count_rendered_groups( $block['innerBlocks'] );
-			}
-		}
-
-		return $count;
 	}
 }
