@@ -21,7 +21,8 @@ import {
 	readSegments,
 	type GateMode,
 } from '../attributes';
-import { buildOptions, toggleKey, useSegments } from '../segments';
+import { buildOptions, toggleKey } from '../options';
+import { useSegments } from '../segments';
 
 export interface SegmentsPanelProps {
 	attributes: Record< string, unknown >;

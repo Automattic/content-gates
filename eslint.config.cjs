@@ -67,9 +67,9 @@ module.exports = [
 		},
 	},
 	{
-		// Edge tests run on node:test, so they need no framework beyond Node;
-		// the preset assumes vitest for *.test.ts.
-		files: [ 'edge-workers/tests/**/*.ts' ],
+		// Edge and editor unit tests run on node:test, so they need no
+		// framework beyond Node; the preset assumes vitest for *.test.ts.
+		files: [ 'edge-workers/tests/**/*.ts', 'tests/js/**/*.ts' ],
 		rules: {
 			'vitest/no-import-node-test': 'off',
 		},

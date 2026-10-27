@@ -99,6 +99,7 @@ Keep development and test data separate. Do not run database-resetting suites ag
 - `tests/`: ALL tests, fixtures, and test tooling
   - `tests/unit/`: PHPUnit tests (`bootstrap.php`, `class-content-gates-test-case.php`, `test-*.php`)
   - `tests/e2e/`: Playwright specs, `helpers.ts`, and `global-setup.ts` (seeds the tests site)
+  - `tests/js/`: `node --test` suites for the editor's pure modules
   - `tests/fixtures/mu-plugins/`: the local-only demo provider, seeder, and purge bridge, mapped into both wp-env sites
   - `tests/phpstan/`: stubs for static analysis only
   - `tests/debugging/`: debugging/analysis tools (none yet; its README says what belongs there)
@@ -149,6 +150,7 @@ independent — separate databases included. Personal overrides go in
 
 ```bash
 npm run test:edge           # Edge Worker logic + simulator, Node only, no Docker
+npm run test:js             # Editor pure functions (src/options.ts, src/attributes.ts), Node only
 npm run test:php            # PHPUnit in the wp-env tests container
 npm run test:e2e            # Playwright E2E against the wp-env tests site (+ in-process edge simulator)
 ```
@@ -160,16 +162,19 @@ fast → slow (only the last two need wp-env):
    host. Catches standards, types, and undefined symbols in well under a
    second.
 2. `npm run lint:js`: ESLint over `src/`, `edge-workers/`, `bin/`, `tests/e2e/`,
-   and `playwright.config.ts`. `npx tsc --noEmit` type-checks `src/`.
-3. `npm run test:edge`: `node --test` over the pure edge modules and the
-   simulator against a fake origin. Seconds, no Docker.
+   `tests/js/`, and `playwright.config.ts`. `npx tsc --noEmit` type-checks `src/`.
+3. `npm run test:edge` and `npm run test:js`: `node --test` over the pure
+   edge modules and the simulator against a fake origin, and over the
+   editor's pure modules (`tests/js/`). Seconds, no Docker.
 4. `npm run test:php`: PHPUnit inside the tests-env `cli` container with the
    WordPress test library. Covers segments, membership, declared set,
-   rendering, excerpts, REST, admin switcher, Newspack bridge.
+   rendering, excerpts, REST, admin page and switcher, edge notice, WP-CLI
+   (through a recording `WP_CLI` fake), Newspack bridge.
 5. `npm run test:e2e`: Playwright against the tests site. Covers response
    bytes on page/feed/REST, cookies, the admin page, the editor control,
-   and the edge simulator in front of the real site. Starts the tests env
-   if the base URL does not answer; needs `npm run build` first for the
+   the example provider, the edge simulator in front of the real site, and
+   the purge bridge from origin to the simulator. Starts the tests env if
+   the base URL does not answer; needs `npm run build` first for the
    editor spec.
 
 Single-test loops: Don't rerun a whole suite while iterating on one

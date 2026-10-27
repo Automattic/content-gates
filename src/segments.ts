@@ -1,5 +1,5 @@
 /**
- * Segment list for the editor: fetch, cache, and option building.
+ * Segment list for the editor: fetch and cache. `options.ts` builds the rows.
  *
  * The list is fetched once per editor session through
  * `GET /content-gates/v1/segments` and shared by every Group block panel.
@@ -7,7 +7,7 @@
 
 import apiFetch from '@wordpress/api-fetch';
 import { useEffect, useState } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 
 export const SEGMENTS_PATH = '/content-gates/v1/segments';
 
@@ -24,20 +24,6 @@ export type SegmentsState =
 	| { status: 'loading'; segments: Segment[] }
 	| { status: 'ready'; segments: Segment[] }
 	| { status: 'error'; segments: Segment[]; message: string };
-
-/**
- * One checkbox row in the Segments panel.
- */
-export interface SegmentOption {
-	key: string;
-	/** Visible checkbox label: the segment name, plus "(inactive)" when needed. */
-	label: string;
-	checked: boolean;
-	crawler: boolean;
-	inactive: boolean;
-	/** Sort type: `boolean`, `crawler`, `meter`, or `~` for an unknown key. */
-	type: string;
-}
 
 let cached: Promise< Segment[] > | null = null;
 
@@ -143,101 +129,4 @@ function errorMessage( error: unknown ): string {
 	}
 
 	return __( 'Could not load segments.', 'content-gates' );
-}
-
-/**
- * Build the checkbox rows for a Group.
- *
- * Active segments are always offered. An inactive segment appears only while
- * the Group still references it, labeled "(inactive)", so an editor can see
- * and clear the assignment. A referenced key the site does not know is shown
- * the same way, labeled "(not found)". Rows are sorted by type (`boolean`,
- * `crawler`, `meter`; unknown keys last), then by key, the same order as the
- * settings page.
- *
- * @param segments Segment list from the REST route.
- * @param assigned Segment keys stored on the Group.
- * @return Rows to render.
- */
-export function buildOptions(
-	segments: Segment[],
-	assigned: string[]
-): SegmentOption[] {
-	const options: SegmentOption[] = [];
-	const known = new Set< string >();
-
-	for ( const segment of segments ) {
-		known.add( segment.key );
-		const checked = assigned.includes( segment.key );
-		if ( ! segment.active && ! checked ) {
-			continue;
-		}
-
-		const inactiveLabel = sprintf(
-			/* translators: %s: segment name. */
-			__( '%s (inactive)', 'content-gates' ),
-			segment.name
-		);
-
-		options.push( {
-			key: segment.key,
-			label: segment.active ? segment.name : inactiveLabel,
-			checked,
-			crawler: segment.crawler,
-			inactive: ! segment.active,
-			type: segment.crawler ? 'crawler' : segment.type,
-		} );
-	}
-
-	for ( const key of assigned ) {
-		if ( known.has( key ) ) {
-			continue;
-		}
-		options.push( {
-			key,
-			/* translators: %s: segment key. */
-			label: sprintf( __( '%s (not found)', 'content-gates' ), key ),
-			checked: true,
-			crawler: false,
-			inactive: true,
-			type: '~',
-		} );
-	}
-
-	return options.sort( compareOptions );
-}
-
-/**
- * Order two rows by type, then by key. Plain code-point order, like the
- * server's `Segment_Registry::compare()`.
- *
- * @param a First row.
- * @param b Second row.
- * @return Negative when `a` sorts first.
- */
-function compareOptions( a: SegmentOption, b: SegmentOption ): number {
-	if ( a.type !== b.type ) {
-		return a.type < b.type ? -1 : 1;
-	}
-	if ( a.key === b.key ) {
-		return 0;
-	}
-	return a.key < b.key ? -1 : 1;
-}
-
-/**
- * Add or remove one key from the assignment, keeping stored order.
- *
- * @param assigned Current keys.
- * @param key      Key to toggle.
- * @param checked  Whether the key should be present afterwards.
- * @return New key list.
- */
-export function toggleKey(
-	assigned: string[],
-	key: string,
-	checked: boolean
-): string[] {
-	const without = assigned.filter( ( item ) => item !== key );
-	return checked ? [ ...without, key ] : without;
 }
