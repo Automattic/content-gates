@@ -179,7 +179,7 @@ and exposes in phase 3 through `resp.request` (the origin-socket snapshot):
 | Header | Value |
 | --- | --- |
 | `x-wpvip-content-gates-lookup` | `full` or `narrowed` |
-| `x-wpvip-content-gates-record` | Record keys phase 1 narrowed with, `donor, subscriber` format |
+| `x-wpvip-content-gates-record` | The record phase 1 narrowed with, in KV record format (`v1:donor,subscriber`; `v1:` for an empty set), so the marker is never an empty header value |
 | `x-wpvip-content-gates-kv` | The KV key, so phase 3 writes the same record phase 1 read |
 | `x-wpvip-content-gates-crawler` | Crawler groups matched, comma separated (diagnostic) |
 

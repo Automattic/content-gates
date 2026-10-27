@@ -4,7 +4,6 @@ import {
 	decodeRecord,
 	encodeRecord,
 	isCovered,
-	joinNames,
 	parseNameList,
 	sameNames,
 } from '../lib/declared.ts';
@@ -16,11 +15,6 @@ test( 'parseNameList sorts, de-duplicates, and drops invalid names', () => {
 	] );
 	assert.deepEqual( parseNameList( '' ), [] );
 	assert.deepEqual( parseNameList( ' , bad name, ok ' ), [ 'ok' ] );
-} );
-
-test( 'joinNames matches the declared header format', () => {
-	assert.equal( joinNames( [ 'subscriber', 'donor' ] ), 'donor, subscriber' );
-	assert.equal( joinNames( [] ), '' );
 } );
 
 test( 'record encoding round-trips, including the empty set', () => {

@@ -79,12 +79,28 @@ test( 'phase 1 with a record narrows to the recorded keys', () => {
 	);
 	assert.equal( out.segmentation, 'vc-v1__subscriber_--_1' );
 	assert.equal( out.lookup, 'narrowed' );
-	assert.equal( out.recordKeys, 'subscriber' );
+	assert.equal( out.recordKeys, 'v1:subscriber' );
 	assert.equal(
 		out.cookie,
 		'other=x; vip-go-seg=vc-v1__newsletter_--_1---__subscriber_--_1',
 		'the forwarded cookie is never narrowed'
 	);
+} );
+
+test( 'phase 1 with an empty record marks the record as v1:, never as an empty value', () => {
+	const out = onClientRequestPure(
+		request( 'vip-go-seg=vc-v1__subscriber_--_1', CHROME, 'v1:' )
+	);
+	assert.equal( out.recordKeys, 'v1:' );
+	const stored = onOriginResponsePure(
+		originResponse(
+			'X-VIP-Go-Segmentation',
+			'',
+			'narrowed',
+			out.recordKeys
+		)
+	);
+	assert.equal( stored.noStore, false, 'the empty set is covered' );
 } );
 
 test( 'phase 1 with an empty record yields an empty key', () => {
@@ -191,6 +207,12 @@ test( 'phase 3 fails closed when the lookup markers are missing or malformed', (
 	);
 	narrowedWithoutRecord.recordKeys = null;
 	assert.equal( onOriginResponsePure( narrowedWithoutRecord ).noStore, true );
+	narrowedWithoutRecord.recordKeys = 'subscriber';
+	assert.equal(
+		onOriginResponsePure( narrowedWithoutRecord ).reason,
+		'no-marker',
+		'a marker without the record prefix is not a record'
+	);
 
 	// Unsegmented responses need no markers.
 	const plain = new OriginResponseInput();
@@ -238,7 +260,7 @@ test( 'phase 3: a too-narrow record means no-store and a wider record', () => {
 			'x-vip-go-segmentation',
 			'newsletter, subscriber',
 			'narrowed',
-			'subscriber'
+			'v1:subscriber'
 		)
 	);
 	assert.equal( out.noStore, true );
@@ -251,7 +273,7 @@ test( 'phase 3: a covered narrowed lookup stores without rewriting the record', 
 			'X-VIP-Go-Segmentation',
 			'subscriber',
 			'narrowed',
-			'subscriber'
+			'v1:subscriber'
 		)
 	);
 	assert.equal( out.noStore, false );
@@ -261,7 +283,7 @@ test( 'phase 3: a covered narrowed lookup stores without rewriting the record', 
 			'X-VIP-Go-Segmentation',
 			'subscriber',
 			'narrowed',
-			'donor, subscriber'
+			'v1:donor,subscriber'
 		)
 	);
 	assert.equal( shrink.noStore, false );
@@ -515,7 +537,7 @@ test( 'phase 3 reports the key the request resolved to', () => {
 	input.vary = 'X-VIP-Go-Segmentation';
 	input.declared = 'newsletter, subscriber';
 	input.lookup = 'narrowed';
-	input.recordKeys = 'subscriber';
+	input.recordKeys = 'v1:subscriber';
 	input.segmentation = 'vc-v1__subscriber_--_1';
 	const out = onOriginResponsePure( input );
 	assert.equal( out.noStore, true, 'narrowed too far' );

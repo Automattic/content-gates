@@ -28,7 +28,6 @@ import {
 	decodeRecord,
 	encodeRecord,
 	isCovered,
-	joinNames,
 	parseNameList,
 	sameNames,
 } from './declared.ts';
@@ -139,7 +138,11 @@ export class ClientRequestOutput {
 	segmentation: string = '';
 	/** `full` or `narrowed`. */
 	lookup: string = LOOKUP_FULL;
-	/** Record keys in declared-header format; empty unless narrowed. */
+	/**
+	 * The record phase 1 narrowed with, in KV record format (`v1:` plus
+	 * names), so an empty declared set is still a non-empty marker. Empty
+	 * when the lookup was full.
+	 */
 	recordKeys: string = '';
 	/** Rewritten `Cookie` header for origin; empty means delete it. */
 	cookie: string = '';
@@ -189,7 +192,7 @@ export function onClientRequestPure(
 			narrowGroups( reader, record )
 		);
 		out.lookup = LOOKUP_NARROWED;
-		out.recordKeys = joinNames( record );
+		out.recordKeys = encodeRecord( record );
 	}
 
 	// 4. The cookie origin sees: the reader's groups plus the worker's
@@ -311,10 +314,11 @@ export function onOriginResponsePure(
 	// coverage check cannot run, so fail closed instead of assuming a full
 	// lookup: if the platform ever drops the request snapshot, the cost is
 	// origin requests, never a narrowed copy stored unchecked.
+	const narrowedWith = decodeRecord( recordHeader );
 	if (
 		lookup === null ||
 		( lookup != LOOKUP_FULL && lookup != LOOKUP_NARROWED ) ||
-		( lookup == LOOKUP_NARROWED && recordHeader === null )
+		( lookup == LOOKUP_NARROWED && narrowedWith === null )
 	) {
 		out.noStore = true;
 		out.reason = 'no-marker';
@@ -331,10 +335,7 @@ export function onOriginResponsePure(
 
 	const declared = parseNameList( declaredHeader );
 	const lookupFull = lookup == LOOKUP_FULL;
-	let recordKeys: string[] = [];
-	if ( recordHeader !== null ) {
-		recordKeys = parseNameList( recordHeader );
-	}
+	const recordKeys: string[] = narrowedWith === null ? [] : narrowedWith;
 
 	if ( ! isCovered( declared, lookupFull, recordKeys ) ) {
 		// The key this response would be stored under was narrowed with a

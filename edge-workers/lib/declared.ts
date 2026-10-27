@@ -12,9 +12,10 @@
 import { isToken, sortNames } from './segmentation.ts';
 
 /**
- * Prefix on every KV record. Lets a future format change be detected
- * instead of mis-parsed, and makes an empty declared set (`v1:`) distinct
- * from an absent record.
+ * Prefix on every KV record and on the phase 1 record marker. Lets a
+ * future format change be detected instead of mis-parsed, and makes an
+ * empty declared set (`v1:`) distinct from an absent record and from an
+ * absent marker.
  */
 export const RECORD_PREFIX: string = 'v1:';
 
@@ -36,16 +37,6 @@ export function parseNameList( value: string ): string[] {
 		names.push( name );
 	}
 	return sortNames( names );
-}
-
-/**
- * Join names in the declared header's format: sorted, comma and space.
- *
- * @param names Group names.
- * @return The joined list, empty when none.
- */
-export function joinNames( names: string[] ): string {
-	return sortNames( names ).join( ', ' );
 }
 
 /**
