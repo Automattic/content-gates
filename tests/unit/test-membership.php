@@ -295,6 +295,27 @@ final class Test_Membership extends Content_Gates_Test_Case {
 	}
 
 	/**
+	 * The expiry has the scope `Vary_Cache` sets the cookie with.
+	 *
+	 * Both apply `vip_vary_cache_cookie_path` and
+	 * `vip_vary_cache_cookie_domain` to `COOKIEPATH` and `COOKIE_DOMAIN`
+	 * as they are. The filters here change the scope only when they receive
+	 * the constants unchanged, so a different input would show up as a
+	 * different scope, and the expiry would miss the cookie.
+	 */
+	public function test_removing_the_last_group_expires_the_cookie_with_the_filtered_scope(): void {
+		add_filter( 'vip_vary_cache_cookie_path', static fn( mixed $path ): mixed => constant( 'COOKIEPATH' ) === $path ? '/news/' : $path );
+		add_filter( 'vip_vary_cache_cookie_domain', static fn( mixed $domain ): mixed => COOKIE_DOMAIN === $domain ? '.example.org' : $domain );
+		$this->create_segment( 'Subscriber' );
+		$this->become_reader( array( 'subscriber' => '1' ) );
+
+		$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertSame( 'vip-go-seg=; Max-Age=0; Path=/news/; Domain=.example.org', Headers::last( 'Set-Cookie' ) );
+	}
+
+	/**
 	 * The expiry is sent before any provider callback on the same action.
 	 *
 	 * Providers redirect on `vip_vary_cache_did_send_headers` and exit, as
