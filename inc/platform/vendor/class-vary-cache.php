@@ -3,7 +3,7 @@
  * Upstream copy of WPVIP's Vary_Cache, loaded ONLY in a `local` environment.
  *
  * Source: https://github.com/Automattic/vip-go-mu-plugins/blob/develop/cache/class-vary-cache.php
- * Blob:   2ba842ffa283f5e621dd1f7f8515d50f5d238b8b (develop, 2026-10-28)
+ * Blob:   8aad282af238a580c52fff2f41a987f3b01b8471 (develop, 2026-10-22)
  *
  * The file is verbatim apart from this header. On WPVIP the plugin requires the
  * platform copy from the mu-plugins directory instead (see Platform::load()).
@@ -556,7 +556,9 @@ class Vary_Cache {
 		$sent_cookie = false;
 
 		if ( self::$should_update_group_cookie ) {
-			$sent_cookie = self::set_group_cookie();
+			$sent_cookie = true;
+
+			self::set_group_cookie();
 		}
 
 		if ( self::$should_update_nocache_cookie ) {
@@ -569,35 +571,12 @@ class Vary_Cache {
 	}
 
 	/**
-	 * Checks whether the request has the active group cookie.
-	 *
-	 * @return boolean Whether the request has the cookie.
-	 */
-	private static function has_group_cookie() {
-		if ( self::is_encryption_enabled() ) {
-			// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___COOKIE
-			return isset( $_COOKIE[ self::COOKIE_AUTH ] ) || ! empty( $_SERVER[ self::HEADER_AUTH ] );
-		}
-
-		// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___COOKIE
-		return isset( $_COOKIE[ self::COOKIE_SEGMENT ] );
-	}
-
-	/**
 	 * Sets the group/segment cookie based on the user's current groupings.
-	 *
-	 * @return boolean Was a Set-Cookie header sent?
 	 */
 	private static function set_group_cookie() {
 		$group_string = self::stringify_groups();
 		if ( empty( $group_string ) ) {
-			$cookie_name = self::is_encryption_enabled() ? self::COOKIE_AUTH : self::COOKIE_SEGMENT;
-			if ( ! self::has_group_cookie() ) {
-				return false;
-			}
-
-			self::unset_cookie( $cookie_name );
-			return true;
+			return;
 		}
 
 		if ( self::is_encryption_enabled() ) {
@@ -606,8 +585,6 @@ class Vary_Cache {
 		} else {
 			self::set_cookie( self::COOKIE_SEGMENT, $group_string );
 		}
-
-		return true;
 	}
 
 	/**
@@ -663,13 +640,11 @@ class Vary_Cache {
 	/**
 	 * Wrapper for the set cookie function to clear out the cookie
 	 *
-	 * @param string $name Cookie Name.
+	 * @param string $name  Cookie Name.
 	 */
 	private static function unset_cookie( $name ) {
-		$cookie_path   = (string) apply_filters( 'vip_vary_cache_cookie_path', COOKIEPATH );
-		$cookie_domain = (string) apply_filters( 'vip_vary_cache_cookie_domain', COOKIE_DOMAIN );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.cookies_setcookie
-		setcookie( $name, '', time() - 3600, $cookie_path, $cookie_domain );
+		setcookie( $name, '', time() - 3600 );
 	}
 	/**
 	 * Only allow alphanumerics, dash and underscore

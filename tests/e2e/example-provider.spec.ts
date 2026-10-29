@@ -89,7 +89,7 @@ test.describe( 'example provider', () => {
 		expect( leave.headers()[ 'set-cookie' ] ).toMatch(
 			/vip-go-seg=(deleted)?;.*Max-Age=0/
 		);
-		// One expiry: Vary_Cache's own, not a second one from the plugin.
+		// One expiry, from the plugin or from Vary_Cache, never from both.
 		expect(
 			setCookies( leave.headersArray() ).filter( ( line ) =>
 				line.startsWith( 'vip-go-seg=' )
