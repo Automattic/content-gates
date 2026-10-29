@@ -44,9 +44,11 @@ final class Platform {
 	/**
 	 * Whether the loaded `Vary_Cache` expires an emptied group cookie itself.
 	 *
-	 * @var bool
+	 * Null until `expires_empty_cookie()` first checks.
+	 *
+	 * @var bool|null
 	 */
-	private bool $expires_empty_cookie = false;
+	private ?bool $expires_empty_cookie = null;
 
 	/**
 	 * Load `Vary_Cache`. Safe to call more than once.
@@ -56,19 +58,21 @@ final class Platform {
 	public function load(): void {
 		if ( class_exists( Vary_Cache::class, false ) ) {
 			$this->available = true;
-		} else {
-			$platform_file = ( defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins' ) . '/cache/class-vary-cache.php';
-			if ( is_readable( $platform_file ) ) {
-				require_once $platform_file;
-				$this->available = class_exists( Vary_Cache::class, false );
-			} elseif ( 'local' === wp_get_environment_type() ) {
-				require_once __DIR__ . '/vendor/class-vary-cache.php';
-				$this->available  = true;
-				$this->local_copy = true;
-			}
+			return;
 		}
 
-		$this->expires_empty_cookie = $this->available && ( new ReflectionClass( Vary_Cache::class ) )->hasMethod( 'has_group_cookie' );
+		$platform_file = ( defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins' ) . '/cache/class-vary-cache.php';
+		if ( is_readable( $platform_file ) ) {
+			require_once $platform_file;
+			$this->available = class_exists( Vary_Cache::class, false );
+			return;
+		}
+
+		if ( 'local' === wp_get_environment_type() ) {
+			require_once __DIR__ . '/vendor/class-vary-cache.php';
+			$this->available  = true;
+			$this->local_copy = true;
+		}
 	}
 
 	/**
@@ -105,9 +109,18 @@ final class Platform {
 	 * `Membership::expire_empty_cookie()` sends a second, identical expiry,
 	 * which is redundant but harmless.
 	 *
+	 * Checked on first use, not in `load()`: only a removal of the reader's
+	 * last group needs it, so other requests skip the reflection.
+	 *
 	 * @since 0.1.0
 	 */
 	public function expires_empty_cookie(): bool {
+		if ( ! $this->available ) {
+			return false;
+		}
+
+		$this->expires_empty_cookie ??= ( new ReflectionClass( Vary_Cache::class ) )->hasMethod( 'has_group_cookie' );
+
 		return $this->expires_empty_cookie;
 	}
 }

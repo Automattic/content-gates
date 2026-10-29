@@ -351,7 +351,8 @@ final class Test_Membership extends Content_Gates_Test_Case {
 	 */
 	public function test_removing_the_last_group_leaves_the_expiry_to_newer_vary_cache(): void {
 		$platform = $this->plugin()->platform();
-		( new \ReflectionProperty( $platform, 'expires_empty_cookie' ) )->setValue( $platform, true );
+		$detected = new \ReflectionProperty( $platform, 'expires_empty_cookie' );
+		$detected->setValue( $platform, true );
 
 		try {
 			$this->create_segment( 'Subscriber' );
@@ -363,7 +364,7 @@ final class Test_Membership extends Content_Gates_Test_Case {
 
 			$this->assertSame( array(), Headers::values( 'Set-Cookie' ) );
 		} finally {
-			$platform->load();
+			$detected->setValue( $platform, null );
 		}
 	}
 
