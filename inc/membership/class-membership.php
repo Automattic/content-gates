@@ -105,7 +105,7 @@ final class Membership {
 		add_action( 'init', array( $this, 'register_groups' ), 5 );
 		add_action( 'send_headers', array( $this, 'close_writes' ), PHP_INT_MAX - 1 );
 		add_action( 'content_gates_rest_headers_sent', array( $this, 'send_rest_headers' ) );
-		add_action( 'vip_vary_cache_did_send_headers', array( $this, 'expire_empty_cookie' ), 10, 2 );
+		add_action( 'vip_vary_cache_did_send_headers', array( $this, 'expire_empty_cookie' ), PHP_INT_MIN, 2 );
 	}
 
 	/**
@@ -382,7 +382,8 @@ final class Membership {
 	 * the same path and domain, so this sends nothing and the response
 	 * carries one expiry (see `Platform::expires_empty_cookie()`). It only
 	 * acts after an actual removal this request, so a reader without a
-	 * cookie never receives one.
+	 * cookie never receives one. It runs at `PHP_INT_MIN`, before provider
+	 * callbacks on the same action that redirect and exit.
 	 *
 	 * @since 0.1.0
 	 *

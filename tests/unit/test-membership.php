@@ -295,6 +295,32 @@ final class Test_Membership extends Content_Gates_Test_Case {
 	}
 
 	/**
+	 * The expiry is sent before any provider callback on the same action.
+	 *
+	 * Providers redirect on `vip_vary_cache_did_send_headers` and exit, as
+	 * the example provider does. A callback that exits before the plugin's
+	 * would leave the old cookie in place. The callback here records what
+	 * was sent when it ran, at a priority below the default.
+	 */
+	public function test_removing_the_last_group_expires_the_cookie_before_a_provider_redirect(): void {
+		$this->create_segment( 'Subscriber' );
+		$this->become_reader( array( 'subscriber' => '1' ) );
+		$at_redirect = array();
+		add_action(
+			'vip_vary_cache_did_send_headers',
+			static function () use ( &$at_redirect ): void {
+				$at_redirect = Headers::values( 'Set-Cookie' );
+			},
+			1
+		);
+
+		$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertCount( 1, $at_redirect, 'The cookie was expired before the provider could redirect.' );
+	}
+
+	/**
 	 * With vip-go-mu-plugins #7454, the plugin leaves the expiry to `Vary_Cache`.
 	 *
 	 * That `Vary_Cache` expires the cookie itself, with the same path and
