@@ -34,8 +34,9 @@ page views never write membership.
 - The plugin ships no membership HTTP route. Only the provider can
   authenticate a reader who has no WordPress login, so the provider writes
   its own authenticated endpoint and calls the PHP functions.
-- Removing a reader's last segment expires the cookie. `Vary_Cache` skips
-  the write when the serialized value is empty, so the plugin expires the
+- Removing a reader's last segment expires the cookie. `Vary_Cache` does
+  it since vip-go-mu-plugins #7454. An older `Vary_Cache` skips the write
+  when the serialized value is empty, so with one the plugin expires the
   cookie itself on `vip_vary_cache_did_send_headers`. A provider needs
   nothing extra.
 - Membership on a cache HIT cannot change. Nothing a provider does at origin

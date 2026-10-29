@@ -274,21 +274,53 @@ final class Test_Membership extends Content_Gates_Test_Case {
 	}
 
 	/**
-	 * Removing the reader's last group expires the cookie instead of leaving it.
+	 * Removing the reader's last group expires the cookie once, from `Vary_Cache`.
 	 *
-	 * Upstream `Vary_Cache` skips the write when every group is empty, so
-	 * without this the reader would send the old cookie back and still be
-	 * a member on the next request.
+	 * The bundled `Vary_Cache` has vip-go-mu-plugins #7454, so it expires the
+	 * cookie itself. Each expiry applies `vip_vary_cache_cookie_path` once,
+	 * so one application means one expiry, and it came from `Vary_Cache`
+	 * because the plugin recorded none.
 	 */
-	public function test_removing_the_last_group_expires_the_cookie(): void {
+	public function test_removing_the_last_group_leaves_the_expiry_to_vary_cache(): void {
+		$this->assertTrue( $this->plugin()->platform()->expires_empty_cookie(), 'The bundled Vary_Cache has #7454.' );
 		$this->create_segment( 'Subscriber' );
 		$this->become_reader( array( 'subscriber' => '1' ) );
+		$sent   = $this->capture_did_send_headers();
+		$scoped = did_filter( 'vip_vary_cache_cookie_path' );
 
 		$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
 		$this->assertTrue( $this->plugin()->membership()->is_dirty() );
 		$this->request_page( home_url( '/' ) );
 
-		$this->assertStringStartsWith( 'vip-go-seg=; Max-Age=0; Path=', (string) Headers::last( 'Set-Cookie' ) );
+		$this->assertSame( array( true, true ), $sent(), 'Vary_Cache wrote its cookie.' );
+		$this->assertSame( 1, did_filter( 'vip_vary_cache_cookie_path' ) - $scoped, 'One expiry was sent.' );
+		$this->assertSame( array(), Headers::values( 'Set-Cookie' ), 'The plugin sent no second expiry.' );
+	}
+
+	/**
+	 * With an older `Vary_Cache`, the plugin expires the cookie instead.
+	 *
+	 * `Vary_Cache` before vip-go-mu-plugins #7454 skips the write when every
+	 * group is empty, so without this the reader would send the old cookie
+	 * back and still be a member on the next request. PHPUnit can load only
+	 * the bundled copy, so the test turns off the platform's detection.
+	 */
+	public function test_removing_the_last_group_expires_the_cookie_on_older_vary_cache(): void {
+		$platform = $this->plugin()->platform();
+		( new \ReflectionProperty( $platform, 'expires_empty_cookie' ) )->setValue( $platform, false );
+
+		try {
+			$this->create_segment( 'Subscriber' );
+			$this->become_reader( array( 'subscriber' => '1' ) );
+
+			$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+			$this->assertTrue( $this->plugin()->membership()->is_dirty() );
+			$this->request_page( home_url( '/' ) );
+
+			$this->assertStringStartsWith( 'vip-go-seg=; Max-Age=0; Path=', (string) Headers::last( 'Set-Cookie' ) );
+		} finally {
+			$platform->load();
+		}
 	}
 
 	/**

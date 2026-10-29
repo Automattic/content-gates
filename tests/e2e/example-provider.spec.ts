@@ -1,6 +1,6 @@
 import { expect, test } from '@wordpress/e2e-test-utils-playwright';
 import { request } from '@playwright/test';
-import { SEED } from './helpers';
+import { SEED, setCookies } from './helpers';
 
 /**
  * The example provider in examples/segment-provider: a reader joins and
@@ -89,6 +89,12 @@ test.describe( 'example provider', () => {
 		expect( leave.headers()[ 'set-cookie' ] ).toMatch(
 			/vip-go-seg=(deleted)?;.*Max-Age=0/
 		);
+		// One expiry: Vary_Cache's own, not a second one from the plugin.
+		expect(
+			setCookies( leave.headersArray() ).filter( ( line ) =>
+				line.startsWith( 'vip-go-seg=' )
+			)
+		).toHaveLength( 1 );
 		const gone = await ctx.get( SEED.gatedArticle );
 		expect( await gone.text() ).not.toContain( SEED.subscriberOnly );
 
