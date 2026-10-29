@@ -52,7 +52,11 @@ final class Headers {
 	 * Expire a cookie and record the `Set-Cookie` that did it.
 	 *
 	 * Applies the path and domain filters `Vary_Cache` applies to its own
-	 * cookies, so the expiry matches the cookie it removes.
+	 * cookies, with the same inputs, so the expiry matches the cookie it
+	 * removes. The constants are passed unchanged and only the results are
+	 * cast, as `Vary_Cache` does: a site may define `COOKIE_DOMAIN` as
+	 * `false`, and a filter that maps `false` to a parent domain must see
+	 * `false` here too.
 	 *
 	 * @since 0.1.0
 	 *
@@ -60,8 +64,8 @@ final class Headers {
 	 * @return bool True when PHP could still send it, false when output had started.
 	 */
 	public static function expire_cookie( string $name ): bool {
-		$default_path   = defined( 'COOKIEPATH' ) ? (string) constant( 'COOKIEPATH' ) : '/';
-		$default_domain = defined( 'COOKIE_DOMAIN' ) ? (string) constant( 'COOKIE_DOMAIN' ) : '';
+		$default_path   = defined( 'COOKIEPATH' ) ? constant( 'COOKIEPATH' ) : '/';
+		$default_domain = defined( 'COOKIE_DOMAIN' ) ? constant( 'COOKIE_DOMAIN' ) : '';
 
 		// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Vary_Cache's own filters, applied for parity.
 		$path   = (string) apply_filters( 'vip_vary_cache_cookie_path', $default_path );

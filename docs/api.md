@@ -49,11 +49,13 @@ Rules:
   from a POST, a logged-in request, or your own endpoint; the edge forwards
   those with the full cookie. On a request the edge narrowed, writers
   return `content_gates_narrowed_request` and change nothing.
-- **Removing the last group expires the cookie.** Upstream `Vary_Cache`
-  skips its write when every group is empty, which would leave the reader a
-  member on the next request. The plugin expires `vip-go-seg` (or
-  `vip-go-auth` in encrypted mode) on `vip_vary_cache_did_send_headers`,
-  with the path and domain `Vary_Cache` used to set it.
+- **Removing the last group expires the cookie.** The response expires
+  `vip-go-seg` (or `vip-go-auth` in encrypted mode) once, with the path and
+  domain `Vary_Cache` used to set it. `Vary_Cache` does this itself since
+  vip-go-mu-plugins #7454. An older `Vary_Cache` skips its write when every
+  group is empty, which would leave the reader a member on the next
+  request, so with one the plugin expires the cookie on
+  `vip_vary_cache_did_send_headers`.
 - Unknown references return `false` or `null` from readers with a
   `_doing_it_wrong()` notice, and `content_gates_invalid_segment` from writers.
 

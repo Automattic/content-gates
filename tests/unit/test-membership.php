@@ -274,13 +274,15 @@ final class Test_Membership extends Content_Gates_Test_Case {
 	}
 
 	/**
-	 * Removing the reader's last group expires the cookie instead of leaving it.
+	 * Removing the reader's last group expires the cookie, once.
 	 *
-	 * Upstream `Vary_Cache` skips the write when every group is empty, so
-	 * without this the reader would send the old cookie back and still be
-	 * a member on the next request.
+	 * The bundled `Vary_Cache` is the production version, from before
+	 * vip-go-mu-plugins #7454. It skips the write when every group is empty,
+	 * so without the plugin's expiry the reader would send the old cookie
+	 * back and still be a member on the next request.
 	 */
 	public function test_removing_the_last_group_expires_the_cookie(): void {
+		$this->assertFalse( $this->plugin()->platform()->expires_empty_cookie(), 'The bundled Vary_Cache is the production version.' );
 		$this->create_segment( 'Subscriber' );
 		$this->become_reader( array( 'subscriber' => '1' ) );
 
@@ -288,7 +290,82 @@ final class Test_Membership extends Content_Gates_Test_Case {
 		$this->assertTrue( $this->plugin()->membership()->is_dirty() );
 		$this->request_page( home_url( '/' ) );
 
+		$this->assertCount( 1, Headers::values( 'Set-Cookie' ) );
 		$this->assertStringStartsWith( 'vip-go-seg=; Max-Age=0; Path=', (string) Headers::last( 'Set-Cookie' ) );
+	}
+
+	/**
+	 * The expiry has the scope `Vary_Cache` sets the cookie with.
+	 *
+	 * Both apply `vip_vary_cache_cookie_path` and
+	 * `vip_vary_cache_cookie_domain` to `COOKIEPATH` and `COOKIE_DOMAIN`
+	 * as they are. The filters here change the scope only when they receive
+	 * the constants unchanged, so a different input would show up as a
+	 * different scope, and the expiry would miss the cookie.
+	 */
+	public function test_removing_the_last_group_expires_the_cookie_with_the_filtered_scope(): void {
+		add_filter( 'vip_vary_cache_cookie_path', static fn( mixed $path ): mixed => constant( 'COOKIEPATH' ) === $path ? '/news/' : $path );
+		add_filter( 'vip_vary_cache_cookie_domain', static fn( mixed $domain ): mixed => COOKIE_DOMAIN === $domain ? '.example.org' : $domain );
+		$this->create_segment( 'Subscriber' );
+		$this->become_reader( array( 'subscriber' => '1' ) );
+
+		$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertSame( 'vip-go-seg=; Max-Age=0; Path=/news/; Domain=.example.org', Headers::last( 'Set-Cookie' ) );
+	}
+
+	/**
+	 * The expiry is sent before any provider callback on the same action.
+	 *
+	 * Providers redirect on `vip_vary_cache_did_send_headers` and exit, as
+	 * the example provider does. A callback that exits before the plugin's
+	 * would leave the old cookie in place. The callback here records what
+	 * was sent when it ran, at a priority below the default.
+	 */
+	public function test_removing_the_last_group_expires_the_cookie_before_a_provider_redirect(): void {
+		$this->create_segment( 'Subscriber' );
+		$this->become_reader( array( 'subscriber' => '1' ) );
+		$at_redirect = array();
+		add_action(
+			'vip_vary_cache_did_send_headers',
+			static function () use ( &$at_redirect ): void {
+				$at_redirect = Headers::values( 'Set-Cookie' );
+			},
+			1
+		);
+
+		$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+		$this->request_page( home_url( '/' ) );
+
+		$this->assertCount( 1, $at_redirect, 'The cookie was expired before the provider could redirect.' );
+	}
+
+	/**
+	 * With vip-go-mu-plugins #7454, the plugin leaves the expiry to `Vary_Cache`.
+	 *
+	 * That `Vary_Cache` expires the cookie itself, with the same path and
+	 * domain, so a second expiry from the plugin would be redundant. PHPUnit
+	 * can load only the bundled copy, so the test turns on the platform's
+	 * detection and checks that the plugin sends nothing.
+	 */
+	public function test_removing_the_last_group_leaves_the_expiry_to_newer_vary_cache(): void {
+		$platform = $this->plugin()->platform();
+		$detected = new \ReflectionProperty( $platform, 'expires_empty_cookie' );
+		$detected->setValue( $platform, true );
+
+		try {
+			$this->create_segment( 'Subscriber' );
+			$this->become_reader( array( 'subscriber' => '1' ) );
+
+			$this->assertTrue( remove_reader_from_segment( 'subscriber' ) );
+			$this->assertTrue( $this->plugin()->membership()->is_dirty() );
+			$this->request_page( home_url( '/' ) );
+
+			$this->assertSame( array(), Headers::values( 'Set-Cookie' ) );
+		} finally {
+			$detected->setValue( $platform, null );
+		}
 	}
 
 	/**

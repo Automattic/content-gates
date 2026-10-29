@@ -43,7 +43,8 @@ use WP_Error;
  * write that narrowed set back to the browser, dropping the reader's other
  * groups. Providers write from POSTs, logged-in requests, or their own
  * endpoints (spec/api.md). Removing the reader's last group expires the
- * cookie, which upstream `Vary_Cache` does not do by itself.
+ * cookie. `Vary_Cache` does this itself since vip-go-mu-plugins #7454; with
+ * an older `Vary_Cache`, `expire_empty_cookie()` does it.
  *
  * @since 0.1.0
  */
@@ -104,7 +105,7 @@ final class Membership {
 		add_action( 'init', array( $this, 'register_groups' ), 5 );
 		add_action( 'send_headers', array( $this, 'close_writes' ), PHP_INT_MAX - 1 );
 		add_action( 'content_gates_rest_headers_sent', array( $this, 'send_rest_headers' ) );
-		add_action( 'vip_vary_cache_did_send_headers', array( $this, 'expire_empty_cookie' ), 10, 2 );
+		add_action( 'vip_vary_cache_did_send_headers', array( $this, 'expire_empty_cookie' ), PHP_INT_MIN, 2 );
 	}
 
 	/**
@@ -372,12 +373,17 @@ final class Membership {
 	/**
 	 * Expire the segmentation cookie when a removal left no group behind.
 	 *
-	 * Action callback for `vip_vary_cache_did_send_headers`. Upstream
-	 * `Vary_Cache` skips the cookie write when every group is empty, so a
-	 * reader removed from their last segment would keep sending the old
-	 * cookie and stay a member. This expires it instead, with the path and
-	 * domain `Vary_Cache` used to set it. It only acts after an actual
-	 * removal this request, so a reader without a cookie never receives one.
+	 * Action callback for `vip_vary_cache_did_send_headers`. `Vary_Cache`
+	 * before vip-go-mu-plugins #7454 skips the cookie write when every group
+	 * is empty, so a reader removed from their last segment would keep
+	 * sending the old cookie and stay a member. With that `Vary_Cache`, this
+	 * expires the cookie instead, with the path and domain `Vary_Cache` used
+	 * to set it. A `Vary_Cache` with #7454 expires the cookie itself, with
+	 * the same path and domain, so this sends nothing and the response
+	 * carries one expiry (see `Platform::expires_empty_cookie()`). It only
+	 * acts after an actual removal this request, so a reader without a
+	 * cookie never receives one. It runs at `PHP_INT_MIN`, before provider
+	 * callbacks on the same action that redirect and exit.
 	 *
 	 * @since 0.1.0
 	 *
@@ -388,6 +394,10 @@ final class Membership {
 		unset( $sent_vary );
 
 		if ( ! $sent_cookie || ! $this->dirty || ! $this->platform->is_available() ) {
+			return;
+		}
+
+		if ( $this->platform->expires_empty_cookie() ) {
 			return;
 		}
 
